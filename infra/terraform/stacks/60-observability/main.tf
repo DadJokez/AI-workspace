@@ -11,6 +11,10 @@ data "aws_ssm_parameter" "logs_kms_key_arn" {
   name = "/comparative/${var.env}/00-foundation/kms/logs_arn"
 }
 
+data "aws_ssm_parameter" "break_glass_rule_arn" {
+  name = "/comparative/${var.env}/00-foundation/events/break_glass_rule_arn"
+}
+
 # 30-platform
 data "aws_ssm_parameter" "cluster_name" {
   name = "/comparative/${var.env}/30-platform/cluster_name"
@@ -66,6 +70,8 @@ module "observability" {
   # for this topic.
   kms_key_arn  = data.aws_ssm_parameter.logs_kms_key_arn.insecure_value
   alert_emails = var.alert_emails
+  # Every use of the break-glass role is reported to this topic.
+  event_rule_arns = [data.aws_ssm_parameter.break_glass_rule_arn.insecure_value]
 
   cluster_name = data.aws_ssm_parameter.cluster_name.insecure_value
   service_names = {

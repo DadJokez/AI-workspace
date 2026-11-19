@@ -36,6 +36,12 @@ variables {
   eval_model_ids                = ["example.model-a-v1:0", "example.model-b"]
   eval_inference_profile_prefix = "us."
   eval_inference_regions        = ["us-east-1", "us-west-2"]
+
+  break_glass_principal_arns = [
+    "arn:aws:iam::111122223333:user/first-responder",
+    "arn:aws:iam::444455556666:user/ops/second-responder",
+  ]
+  ops_topic_arn = "arn:aws:sns:us-east-1:111122223333:cmp-unit-ops-alerts"
 }
 
 run "names_follow_the_prefix" {
@@ -405,4 +411,127 @@ run "image_push_role_is_limited_to_the_repositories_and_signing_key" {
     ])
     error_message = "the only grant on every resource is the registry login"
   }
+}
+
+# --- break-glass ---------------------------------------------------------------
+
+run "break_glass_trusts_named_people_with_mfa_only" {
+  command = plan
+
+  assert {
+    condition     = aws_iam_role.break_glass.name == "cmp-unit-break-glass" && aws_iam_role.break_glass.max_session_duration == 3600
+    error_message = "break-glass role name and session ceiling"
+  }
+  assert {
+    condition = jsondecode(aws_iam_role.break_glass.assume_role_policy).Statement == [{
+      Sid       = "NamedPeopleWithMfa"
+      Effect    = "Allow"
+      Action    = "sts:AssumeRole"
+      Principal = { AWS = ["arn:aws:iam::111122223333:user/first-responder", "arn:aws:iam::444455556666:user/ops/second-responder"] }
+      Condition = {
+        Bool            = { "aws:MultiFactorAuthPresent" = "true" }
+        NumericLessThan = { "aws:MultiFactorAuthAge" = "3600" }
+      }
+    }]
+    error_message = "one statement: the named principals, with MFA no older than an hour, and no workflow identity"
+  }
+}
+
+run "break_glass_may_change_what_the_apply_role_may" {
+  command = plan
+
+  assert {
+    condition = (
+      keys(aws_iam_role_policy.break_glass) == ["managed-services", "state-read-write", "workload-iam"] &&
+      aws_iam_role_policy.break_glass["managed-services"].policy == aws_iam_role_policy.tf_apply_services.policy &&
+      aws_iam_role_policy.break_glass["workload-iam"].policy == aws_iam_role_policy.tf_apply_iam.policy &&
+      aws_iam_role_policy.break_glass["state-read-write"].policy == aws_iam_role_policy.tf_apply_state.policy
+    )
+    error_message = "the break-glass role holds exactly the apply role's documents"
+  }
+  assert {
+    condition     = aws_iam_role_policy_attachment.break_glass_read_only.policy_arn == "arn:aws:iam::aws:policy/ReadOnlyAccess"
+    error_message = "and reads everything"
+  }
+  assert {
+    condition = contains(
+      [for s in jsondecode(aws_iam_role_policy.break_glass["managed-services"].policy).Statement : s.Action if s.Effect == "Deny" && s.Resource == "*"],
+      "secretsmanager:GetSecretValue",
+    )
+    error_message = "it cannot read a secret value"
+  }
+  assert {
+    condition = (
+      alltrue([for s in jsondecode(aws_iam_role_policy.break_glass_keep_the_notice.policy).Statement : s.Effect == "Deny"]) &&
+      one([for s in jsondecode(aws_iam_role_policy.break_glass_keep_the_notice.policy).Statement : s.Resource if s.Sid == "DenyChangingTheOpsTopic"]) == "arn:aws:sns:us-east-1:111122223333:cmp-unit-ops-alerts" &&
+      one([for s in jsondecode(aws_iam_role_policy.break_glass_keep_the_notice.policy).Statement : s.Resource if s.Sid == "DenyChangingTheRule"]) == "arn:aws:events:us-east-1:111122223333:rule/cmp-unit-break-glass-assumed"
+    )
+    error_message = "the role cannot change the topic or the rule that report its use"
+  }
+}
+
+run "break_glass_use_notifies_the_ops_topic" {
+  command = plan
+
+  assert {
+    condition = (
+      aws_cloudwatch_event_rule.break_glass_assumed.name == "cmp-unit-break-glass-assumed" &&
+      aws_cloudwatch_event_rule.break_glass_assumed.state == "ENABLED_WITH_ALL_CLOUDTRAIL_MANAGEMENT_EVENTS"
+    )
+    error_message = "the rule is named after the environment and receives read-only management events too"
+  }
+  assert {
+    condition = jsondecode(aws_cloudwatch_event_rule.break_glass_assumed.event_pattern).detail["$or"][0] == {
+      eventSource       = ["sts.amazonaws.com"]
+      eventName         = ["AssumeRole"]
+      requestParameters = { roleArn = ["arn:aws:iam::111122223333:role/cmp-unit-break-glass"] }
+    }
+    error_message = "the rule matches AssumeRole of the break-glass role"
+  }
+  assert {
+    condition = jsondecode(aws_cloudwatch_event_rule.break_glass_assumed.event_pattern).detail["$or"][1] == {
+      eventSource  = ["signin.amazonaws.com"]
+      eventName    = ["SwitchRole"]
+      userIdentity = { arn = [{ prefix = "arn:aws:sts::111122223333:assumed-role/cmp-unit-break-glass/" }] }
+    }
+    error_message = "the rule matches a console switch to the break-glass role"
+  }
+  assert {
+    condition = (
+      aws_cloudwatch_event_target.break_glass_assumed.rule == "cmp-unit-break-glass-assumed" &&
+      aws_cloudwatch_event_target.break_glass_assumed.arn == "arn:aws:sns:us-east-1:111122223333:cmp-unit-ops-alerts" &&
+      strcontains(aws_cloudwatch_event_target.break_glass_assumed.input_transformer[0].input_template, "docs/runbooks/BREAK_GLASS.md")
+    )
+    error_message = "the rule notifies the ops topic and names the runbook"
+  }
+}
+
+run "break_glass_refuses_an_account_root" {
+  command = plan
+
+  variables {
+    break_glass_principal_arns = ["arn:aws:iam::111122223333:root"]
+  }
+
+  expect_failures = [var.break_glass_principal_arns]
+}
+
+run "break_glass_refuses_a_wildcard" {
+  command = plan
+
+  variables {
+    break_glass_principal_arns = ["arn:aws:iam::111122223333:user/*"]
+  }
+
+  expect_failures = [var.break_glass_principal_arns]
+}
+
+run "break_glass_needs_a_principal" {
+  command = plan
+
+  variables {
+    break_glass_principal_arns = []
+  }
+
+  expect_failures = [var.break_glass_principal_arns]
 }

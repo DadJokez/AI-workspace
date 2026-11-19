@@ -14,6 +14,15 @@
 #       do"): read-only like `plan`, and fails when the stack has changes
 #       that are not applied yet.
 #
+#   stack.sh drift <env> <stack> <out dir>
+#       The drift workflow's plan: read-only like `plan`, with
+#       -detailed-exitcode, which tells "no changes" (0) from "changes" (2).
+#       Also writes outside.md (what changed outside Terraform) and sets
+#       `drift` in report.json. Passes whether or not there is drift; fails
+#       when the plan fails. The environment, the stack and the placeholders
+#       are checked first, so that tf.sh's own exit code 2 (a usage error)
+#       can never be read as "changes".
+#
 #   stack.sh apply <env> <stack> <out dir> [<reviewed report.json>]
 #       Plans with the state lock and applies exactly that plan, unless it
 #       changes nothing. Refused when a rule rejects the plan; when a reviewed
@@ -26,7 +35,8 @@
 #       pull request's own run, so it cannot be what allows it.
 #
 # report.json: {env, stack, changes, fingerprint, stateful: [address],
-#               policy_ok, policy_failures: [message], applied}
+#               policy_ok, policy_failures: [message], applied}, and in
+#              drift mode also drift: true|false
 # exit: 0 on success, 1 when refused or Terraform fails, 2 on a usage error.
 set -euo pipefail
 
@@ -34,14 +44,14 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 root=$(cd "$here/.." && pwd)
 
 usage() {
-  echo "usage: stack.sh <plan|check|apply> <env> <stack> <out dir> [<reviewed report.json>]" >&2
+  echo "usage: stack.sh <plan|check|drift|apply> <env> <stack> <out dir> [<reviewed report.json>]" >&2
   exit 2
 }
 [ "$#" -ge 4 ] || usage
 mode=$1 env_name=$2 stack=$3 out=$4
 reviewed=${5:-}
 case "$mode" in
-  plan | check) [ "$#" -eq 4 ] || usage ;;
+  plan | check | drift) [ "$#" -eq 4 ] || usage ;;
   apply) [ "$#" -le 5 ] || usage ;;
   *) usage ;;
 esac
@@ -57,9 +67,26 @@ mkdir -p "$out"
 out=$(cd "$out" && pwd)
 plan_file="$out/plan.tfplan"
 
-lock=()
-[ "$mode" = apply ] || lock=(-lock=false)
-"$root/tf.sh" "$env_name" "$stack" plan -input=false "${lock[@]}" -out="$plan_file"
+plan_args=(-lock=false)
+case "$mode" in
+  apply) plan_args=() ;;
+  drift)
+    plan_args+=(-detailed-exitcode)
+    [ -d "$root/envs/$env_name" ] || refuse "no such environment"
+    [ -d "$root/stacks/$stack" ] || refuse "no such stack"
+    "$here/placeholders.sh" "$root/envs/$env_name" > /dev/null || refuse "envs/$env_name still has placeholder values"
+    ;;
+esac
+plan_exit=0
+"$root/tf.sh" "$env_name" "$stack" plan -input=false "${plan_args[@]}" -out="$plan_file" || plan_exit=$?
+if [ "$mode" = drift ]; then
+  case "$plan_exit" in
+    0 | 2) ;;
+    *) refuse "the plan failed (exit $plan_exit)" ;;
+  esac
+elif [ "$plan_exit" != 0 ]; then
+  exit "$plan_exit"
+fi
 terraform -chdir="$root/stacks/$stack" show -json "$plan_file" > "$out/plan.json"
 
 policy_ok=true
@@ -92,6 +119,15 @@ echo "$env_name/$stack: $changes change(s), fingerprint $fingerprint"
 
 case "$mode" in
   plan) exit 0 ;;
+  drift)
+    drift=false
+    [ "$plan_exit" = 0 ] || drift=true
+    "$here/plan-report.sh" outside "$out/plan.json" > "$out/outside.md"
+    jq --argjson drift "$drift" '.drift = $drift' "$out/report.json" > "$out/report.json.new"
+    mv "$out/report.json.new" "$out/report.json"
+    echo "$env_name/$stack: drift=$drift"
+    exit 0
+    ;;
   check)
     [ "$policy_ok" = true ] || refuse "a policy rule rejects the plan: $(paste -sd ';' "$out/policy.txt")"
     [ "$changes" = 0 ] ||

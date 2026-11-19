@@ -1,8 +1,8 @@
 # Runbooks
 
-Operational procedures for Comparative production. Each runbook states what is
-automated and what is not; where a step is manual, it says so rather than
-implying a tool exists.
+Operational procedures for Comparative production and for the environments the
+Terraform pipeline deploys. Each runbook states what is automated and what is
+not; where a step is manual, it says so rather than implying a tool exists.
 
 Nothing here has been rehearsed against production unless the runbook says it
 has. A written procedure is not a drill — the point of writing them is that the
@@ -15,12 +15,16 @@ first execution should not also be the first draft.
 | [DSAR_RIGHT_TO_DELETE.md](./DSAR_RIGHT_TO_DELETE.md) | Answer a data-subject access or deletion request | **No** |
 | [RDS_NETWORK_PERIMETER.md](./RDS_NETWORK_PERIMETER.md) | Verify and recover the non-public RDS network boundary | **Yes, through the production deployment gate** |
 | [BEDROCK_QUOTA_HEADROOM.md](./BEDROCK_QUOTA_HEADROOM.md) | Respond before shared Sonnet quota exhaustion can starve production | **No** |
+| [ROLLBACK.md](./ROLLBACK.md) | Roll a Terraform-pipeline environment back to its previous release: revert the release pull request | **No** |
+| [BREAK_GLASS.md](./BREAK_GLASS.md) | When and how to change a Terraform-pipeline environment by hand with the break-glass role, and reconcile it into Git within one working day | **No** |
 | [ADD_A_CONVERSE_MODEL.md](./ADD_A_CONVERSE_MODEL.md) | Register, qualify and (Rob) enable a new Bedrock Converse model | **Partly — through qualification on `nova-pro` (2026-09-05), `gpt-oss-120b` (2026-09-06) and seven of the ten-model gaggle of 2026-09-06 (three Claude 5.x entries are account-gated); the enablement flip never** |
 
 Related:
 
-- [Production deployment](../PRODUCTION_DEPLOYMENT.md) — the deploy path, ECS
-  rollback (`infra/scripts/rollback-ecs.sh`), and deployment receipts.
+- [Production deployment](../PRODUCTION_DEPLOYMENT.md) — the Terraform pipeline
+  (plan on pull request, apply on merge, promotion, drift detection) and, until
+  the cutover, the CDK deploy path with its ECS rollback
+  (`infra/scripts/rollback-ecs.sh`) and deployment receipts.
 - [Incident response](../security/INCIDENT_RESPONSE.md) — severity, evidence
   handling, containment, and recovery.
 - [Data flow and classification](../security/DATA_FLOW_AND_CLASSIFICATION.md) —

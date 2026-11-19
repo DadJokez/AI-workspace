@@ -1,0 +1,309 @@
+name: Terraform Drift
+
+# Drift detection (docs/roadmap/KOCH_MIGRATION_SPEC.md, WP-16). Every night,
+# and when run by hand on main, plans every stack of every environment
+# against its real state with the read-only plan role:
+#
+#   terraform plan -detailed-exitcode -lock=false   (scripts/stack.sh drift)
+#
+# exit 0 is "no changes", 2 is "changes": what runs in AWS differs from main.
+# A plan sees only what Terraform manages, so a security group rule added
+# beside the managed ones (the console's "add rule") is found separately
+# (scripts/sg-rules.sh): a rule of a managed group that no stack of the
+# environment manages is drift too.
+#
+# One issue per environment, labelled ops, found again by the marker on the
+# first line of its body (drift-issue.sh):
+#   - drift: opens it, or refreshes the open one, with the result of each
+#     stack, totals by resource type and the ids of unmanaged rules. Never a
+#     value or an address;
+#   - no drift in any stack: closes it, with a comment;
+#   - a plan failed and nothing drifted: drift is unknown, the issue is left
+#     as it is (refreshed if open) and the run fails.
+# The issue says by when the drift must be in Git: within one working day of
+# the first report (docs/runbooks/BREAK_GLASS.md). A run that finds the issue
+# still open past that deadline fails.
+#
+# Trust boundary: the plan role only (read-only, no state lock, no secret
+# values). Nothing here can change AWS. Artifacts carry the results and the
+# summaries, never the plan or its JSON, which hold values.
+#
+# An environment whose files still carry REPLACE_ME is not planned.
+#
+# Repository variable TF_ROLE_ARNS (see terraform-plan.yml). Label ops: create
+# it in the repository settings. It is also how the open issue is found, so
+# an issue whose label was removed is no longer refreshed or closed, and the
+# next drift opens a new one.
+#
+# Schedule and notification are Rob's decisions: the time below, and that an
+# issue (not a page or a chat message) is the signal.
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+# No workflow-wide grant: each job takes only what it needs.
+permissions: {}
+
+concurrency:
+  group: terraform-drift
+  cancel-in-progress: false
+
+jobs:
+  stacks:
+    name: environments and stacks
+    # The drift of main, never of another branch: a run by hand elsewhere
+    # would open and close issues for code that is not deployed.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      pairs: ${{ steps.pairs.outputs.pairs }}
+      planned: ${{ steps.pairs.outputs.planned }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Verify the pipeline scripts
+        run: infra/terraform/check.sh scripts
+
+      - name: Every pair of an environment without placeholders
+        id: pairs
+        run: |
+          set -euo pipefail
+          infra/terraform/scripts/affected.sh --all > "$RUNNER_TEMP/pairs.tsv" < /dev/null
+          : > "$RUNNER_TEMP/planned.txt"
+          while IFS= read -r env_name; do
+            if infra/terraform/scripts/placeholders.sh "infra/terraform/envs/$env_name" > /dev/null; then
+              echo "$env_name" >> "$RUNNER_TEMP/planned.txt"
+            else
+              echo "::notice::envs/$env_name still has placeholder values; its drift is not checked"
+            fi
+          done < <(cut -f1 "$RUNNER_TEMP/pairs.tsv" | sort -u)
+          {
+            echo "pairs=$(jq -Rnc --rawfile planned "$RUNNER_TEMP/planned.txt" '
+              ($planned | split("\n") | map(select(. != ""))) as $envs
+              | [inputs | split("\t") | select(.[0] as $e | $envs | index($e)) | {env: .[0], stack: .[1]}]' \
+              < "$RUNNER_TEMP/pairs.tsv")"
+            echo "planned=$(jq -Rnc '[inputs | select(. != "")]' < "$RUNNER_TEMP/planned.txt")"
+          } >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/pairs.tsv"
+
+  plan:
+    name: drift ${{ matrix.env }} ${{ matrix.stack }}
+    needs: stacks
+    if: needs.stacks.outputs.pairs != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.stacks.outputs.pairs) }}
+    env:
+      TF_ENV: ${{ matrix.env }}
+      TF_STACK: ${{ matrix.stack }}
+      TF_ROLE_ARNS: ${{ vars.TF_ROLE_ARNS }}
+      TF_IN_AUTOMATION: "1"
+      TF_INPUT: "0"
+      CHECKPOINT_DISABLE: "1"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Name the outputs
+        run: |
+          {
+            echo "OUT=$RUNNER_TEMP/plan"
+            echo "REPORT=$RUNNER_TEMP/report"
+          } >> "$GITHUB_ENV"
+
+      - name: Resolve the plan role and region
+        id: role
+        run: |
+          set -euo pipefail
+          roles=${TF_ROLE_ARNS:-}
+          [ -n "$roles" ] || roles='{}'
+          arn=$(jq -r --arg e "$TF_ENV" '.[$e].plan // empty' <<<"$roles" 2>/dev/null || true)
+          [[ "$arn" =~ ^arn:aws[a-z-]*:iam::[0-9]{12}:role/cmp-$TF_ENV-tf-plan$ ]] || {
+            echo "::error::TF_ROLE_ARNS has no plan role for $TF_ENV (see the header of terraform-plan.yml)"
+            exit 1
+          }
+          region=$(sed -n 's/^aws_region[[:space:]]*=[[:space:]]*"\([a-z0-9-]*\)"$/\1/p' \
+            "infra/terraform/envs/$TF_ENV/env.tfvars" | head -n 1)
+          [ -n "$region" ] || { echo "::error::envs/$TF_ENV/env.tfvars sets no aws_region"; exit 1; }
+          {
+            echo "role_arn=$arn"
+            echo "region=$region"
+          } >> "$GITHUB_OUTPUT"
+
+      # OIDC only: no long-lived AWS keys. Read-only role.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        with:
+          role-to-assume: ${{ steps.role.outputs.role_arn }}
+          aws-region: ${{ steps.role.outputs.region }}
+          role-session-name: tf-drift-${{ github.run_id }}-${{ github.run_attempt }}
+          mask-aws-account-id: true
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.17.2
+          terraform_wrapper: false
+
+      # stack.sh checks every plan with the Conftest rules. Conftest publishes
+      # no setup action; building the pinned version with the runner's Go
+      # toolchain verifies it against the Go checksum database.
+      - name: Setup Conftest
+        run: |
+          go install github.com/open-policy-agent/conftest@v0.71.1
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Plan with the detailed exit code
+        id: drift
+        run: infra/terraform/scripts/stack.sh drift "$TF_ENV" "$TF_STACK" "$OUT"
+
+      - name: Security group rules outside Terraform
+        id: rules
+        run: |
+          set -euo pipefail
+          infra/terraform/scripts/sg-rules.sh managed "$OUT/plan.json" > "$OUT/sg-managed.json"
+          infra/terraform/scripts/sg-rules.sh live "$OUT/sg-managed.json" > "$OUT/sg-live.json"
+          echo "$(jq '.groups | length' "$OUT/sg-managed.json") managed group(s), $(jq length "$OUT/sg-live.json") live rule(s)"
+
+      # The issue job reads these. A plan that failed still reports, so a
+      # failure is never read as "no drift".
+      - name: Write the result
+        if: always()
+        env:
+          DRIFT_OUTCOME: ${{ steps.drift.outcome }}
+          RULES_OUTCOME: ${{ steps.rules.outcome }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$REPORT"
+          outcome=failed
+          if [ "$DRIFT_OUTCOME" = success ] && [ -f "$OUT/report.json" ]; then
+            outcome=$(jq -r 'if .drift == true then "drift" elif .drift == false then "clean" else "failed" end' "$OUT/report.json")
+          fi
+          jq -n --arg env "$TF_ENV" --arg stack "$TF_STACK" --arg outcome "$outcome" \
+            '{env: $env, stack: $stack, outcome: $outcome}' > "$REPORT/result.json"
+          for file in summary.md outside.md; do
+            [ ! -f "$OUT/$file" ] || cp "$OUT/$file" "$REPORT/$file"
+          done
+          if [ "$RULES_OUTCOME" = success ]; then
+            cp "$OUT/sg-managed.json" "$OUT/sg-live.json" "$REPORT/"
+          fi
+          echo "$TF_ENV/$TF_STACK: $outcome" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Results, summaries and ids only: never plan.tfplan or plan.json.
+      - name: Upload the result
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: drift-${{ matrix.env }}-${{ matrix.stack }}
+          path: ${{ runner.temp }}/report/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+  issue:
+    name: drift issues
+    needs: [stacks, plan]
+    if: always() && needs.stacks.result == 'success' && needs.stacks.outputs.planned != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # The scripts.
+      contents: read
+      # Open, refresh, comment on and close the drift issues.
+      issues: write
+    env:
+      PAIRS: ${{ needs.stacks.outputs.pairs }}
+      PLANNED: ${{ needs.stacks.outputs.planned }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      LABEL: ops
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # A result that is missing counts as a failed plan (drift unknown), so a
+      # download that finds nothing can never close an issue.
+      - name: Download the results
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: drift-*
+          path: ${{ runner.temp }}/reports
+
+      # Only this workflow's own issues count: the marker must open the body
+      # of an issue that github-actions[bot] wrote, so nobody can steer the
+      # job with an issue of their own.
+      - name: Open, refresh or close the issues
+        run: |
+          set -euo pipefail
+          reports="$RUNNER_TEMP/reports"
+          mkdir -p "$reports"
+          scripts=infra/terraform/scripts
+          now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          status=0
+          gh api "repos/$GH_REPO/issues?state=open&labels=$LABEL&per_page=100" --paginate --slurp > "$RUNNER_TEMP/issues.json"
+          echo "### Drift" >> "$GITHUB_STEP_SUMMARY"
+          for env_name in $(jq -r '.[]' <<<"$PLANNED"); do
+            marker="<!-- terraform-drift:$env_name -->"
+            mapfile -t stacks < <(jq -r --arg e "$env_name" '.[] | select(.env == $e) | .stack' <<<"$PAIRS")
+            "$scripts/drift-issue.sh" evaluate "$env_name" "$reports" "${stacks[@]}" > "$RUNNER_TEMP/evaluation-$env_name.json"
+            result=$(jq -r .status "$RUNNER_TEMP/evaluation-$env_name.json")
+            existing=$(jq -c --arg marker "$marker" '
+              [.[][] | select(.pull_request == null and .user.login == "github-actions[bot]" and ((.body // "") | startswith($marker)))]
+              | sort_by(.number) | .[0] // empty' "$RUNNER_TEMP/issues.json")
+            number=""
+            [ -z "$existing" ] || number=$(jq -r .number <<<"$existing")
+            echo "- \`$env_name\`: $result${number:+ (issue #$number)}" >> "$GITHUB_STEP_SUMMARY"
+
+            if [ "$result" = clean ]; then
+              if [ -n "$number" ]; then
+                jq -n --arg run "$RUN_URL" '{body: "No drift: every stack planned with no changes and every security group rule is managed ([run](\($run))). Closing."}' \
+                  | gh api "repos/$GH_REPO/issues/$number/comments" --input - > /dev/null
+                gh api -X PATCH "repos/$GH_REPO/issues/$number" -f state=closed -f state_reason=completed > /dev/null
+                echo "$env_name: no drift; closed #$number"
+              else
+                echo "$env_name: no drift"
+              fi
+              continue
+            fi
+
+            if [ "$result" = unknown ] && [ -z "$number" ]; then
+              echo "::error::$env_name: a plan failed, so its drift is unknown; no issue was opened"
+              status=1
+              continue
+            fi
+            [ "$result" = drift ] || { echo "::error::$env_name: a plan failed, so its drift is unknown"; status=1; }
+
+            first=$now
+            [ -z "$number" ] || first=$(jq -r .created_at <<<"$existing")
+            body="$RUNNER_TEMP/body-$env_name.md"
+            "$scripts/drift-issue.sh" body "$RUNNER_TEMP/evaluation-$env_name.json" "$reports" "$first" "$now" "$RUN_URL" > "$body"
+            if [ -n "$number" ]; then
+              jq -n --rawfile body "$body" '{body: $body}' | gh api -X PATCH "repos/$GH_REPO/issues/$number" --input - > /dev/null
+              echo "$env_name: $result; refreshed #$number"
+            else
+              number=$(jq -n --rawfile body "$body" --arg title "Terraform drift: $env_name" --arg label "$LABEL" \
+                '{title: $title, body: $body, labels: [$label]}' | gh api "repos/$GH_REPO/issues" --input - --jq .number)
+              echo "$env_name: drift; opened #$number"
+            fi
+            if [ "$("$scripts/drift-issue.sh" overdue "$first" "$now")" = true ]; then
+              echo "::error::$env_name: drift first reported $first is past its deadline $("$scripts/drift-issue.sh" deadline "$first") (issue #$number)"
+              status=1
+            fi
+          done
+          exit "$status"

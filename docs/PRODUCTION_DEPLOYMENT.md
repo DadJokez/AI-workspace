@@ -1,10 +1,129 @@
 # Production deployment
 
+Comparative is moving from a CDK and CodeBuild deployment to a Terraform pipeline driven from Git
+(docs/roadmap/KOCH_MIGRATION_SPEC.md, Part C). Until the cutover (WP-20) both exist:
+
+- **The Terraform pipeline** deploys `personal-stage`. It is described first, and it is how every
+  environment deploys after the cutover.
+- **CDK and CodeBuild** deploy production. That path is kept below, unchanged, under
+  [CDK (until cutover)](#cdk-until-cutover); WP-20 deletes that section.
+
+The details of each workflow, its settings and what Rob sets up are in
+[`infra/terraform/README.md`](../infra/terraform/README.md), "A release" and "Plan, apply, promote".
+This page is the order of events and where to look.
+
+## The Terraform pipeline
+
+```
+pull request ─► terraform-plan.yml: plan per affected (environment, stack), Conftest, comment
+merge to main ─► build-release.yml: five images by digest, SBOM, scan, signature
+                                    └─► release pull request: envs/<env>/release.auto.tfvars
+release pull request merged ─► terraform-apply.yml (GitHub environment <env>)
+        35-deploy-tasks ─► snapshot (if migrations changed) ─► migrator task ─► 50-agentcore
+        ─► 40-services (steady state) ─► smoke task ─► GitHub deployment record
+promote.yml (by hand) ─► pull request copying the release into envs/<to>/release.auto.tfvars
+terraform-drift.yml (nightly) ─► plan -detailed-exitcode per (environment, stack) ─► issue on drift
+```
+
+Every workflow assumes AWS roles through GitHub OIDC; no long-lived key is stored anywhere. Pull
+requests and the drift job get the read-only plan role only. The apply role trusts the GitHub
+environment of the same name only, so only a job of `terraform-apply.yml` in that environment can
+change AWS, and `terraform-plan.yml` proves on every run that a pull request cannot assume it.
+
+### 1. Build once
+
+`build-release.yml` runs on every push to `main` that can change an image. It builds `web`, `worker`,
+`memory-worker`, `migrator` and `agent` once, pushes each to an immutable repository as
+`<component>-<commit sha>`, writes an SBOM, fails on a fixable critical or high vulnerability, and
+signs the digest with the environment's KMS signing key. Its last job opens or updates the pull request
+`release(personal-stage): <short sha>`, whose only change is `release.auto.tfvars`: the release id (the
+commit) and the five images by digest. Images are never referenced by tag.
+
+### 2. Plan on pull request
+
+`terraform-plan.yml` plans every (environment, stack) pair a pull request affects with the plan role,
+checks each plan with the Conftest rules of `infra/terraform/policy/`, and posts one comment per
+environment with what would change, by resource type. A plan that destroys or replaces a database, KMS
+key, bucket, secret or ECR repository fails unless Rob has labelled the pull request
+`allow-stateful-replace`. A plan that passed is kept as an artifact for the apply.
+
+### 3. Apply on merge
+
+`terraform-apply.yml` runs one job per affected environment, one at a time per environment, in the
+GitHub environment of that name (`personal-prod` will require Rob's approval). For a release:
+
+1. refuse a commit that does not descend from the last one deployed successfully (releases only move
+   forward; a rollback is a new commit);
+2. verify that every digest is signed for the release id and that the id is a commit on `main`;
+3. apply `35-deploy-tasks` (the migrator and smoke task definitions);
+4. if `packages/db/drizzle` changed since the release last deployed, snapshot the database
+   (`pre-migrate-<sha12>-<run>-<attempt>`), wait for it, and delete such snapshots older than
+   `snapshot_keep_days`;
+5. run the migrator task in the private subnets and require exit code 0. Migrations are expand-only
+   (`packages/db/scripts/migration-guard.mjs`);
+6. apply `50-agentcore`, then `40-services`: Terraform waits for steady state, and the deployment
+   circuit breaker rolls a task set that does not become healthy back, which fails the apply;
+7. run the smoke task. When it fails, the job opens a pull request reverting the merged commit (it is
+   never merged automatically) and fails;
+8. record a GitHub deployment of the commit for the environment, success or failure, with the release
+   id, the digests, each stack's plan fingerprint, the snapshot id and both task receipts. The job
+   summary shows the same JSON. This record replaces the receipts of the CodeBuild log.
+
+Any other change applies the affected stacks in the apply order; each plan must match the plan reviewed
+on the pull request, or the job fails. `00-foundation`, `20-data` and `30-platform` are applied by a
+human; the job only checks that nothing is pending for them.
+
+### 4. Promotion
+
+`promote.yml`, run by hand with `from` and `to`, checks that `from`'s current release deployed
+successfully and opens a pull request copying the release id and digests into
+`envs/<to>/release.auto.tfvars`. For an environment with `production = true` it first dispatches
+Product Smoke with the eval gate (`run_evals=true`) against `from`'s base URL and requires it to pass.
+The merge deploys through step 3.
+
+### Verification
+
+The GitHub deployment record of an environment is the source for what runs there:
+
+```bash
+gh api "repos/<owner>/<repo>/deployments?environment=<env>&task=terraform-apply&per_page=5" \
+  --jq '.[] | {sha, created_at, release: .payload.release_id}'
+```
+
+A deploy is healthy only when its record is `success`, which requires the migrator and smoke tasks to
+have exited 0 and every service to be steady.
+
+### Drift detection
+
+`terraform-drift.yml` plans every stack of every environment each night with
+`-detailed-exitcode -lock=false` and the plan role, and also looks for security group rules that no
+stack manages. When AWS differs from `main` it opens or refreshes one issue per environment,
+**Terraform drift: `<env>`**, labelled `ops`; when nothing differs it closes it. Nothing should differ:
+the only sanctioned change outside the pipeline is break-glass, and that has one working day to reach
+Git.
+
+### Break-glass
+
+`<name_prefix>-break-glass` is emergency access for named people with MFA, for when the pipeline cannot
+make a change in time. Every use notifies the ops alert topic. When it may be used, how, and the rule
+that every change is reconciled into Git within one working day:
+[Break-glass](./runbooks/BREAK_GLASS.md).
+
+### Rollback
+
+Revert the release pull request; the revert deploys like any release. The database is not rolled back
+(expand-only migrations) and AgentCore follows the same revert: [Rollback](./runbooks/ROLLBACK.md).
+
+## CDK (until cutover)
+
+> **This is how production deploys until the cutover (WP-20), which deletes this section.** Nothing in
+> it applies to the environments of the Terraform pipeline above.
+
 Comparative deploys merged `main` commits through the `ai-workspace-build`
 CodeBuild project. The pipeline is fail-closed and uses the same commit-SHA
 tag for the ECS and AgentCore images.
 
-## Ordered deployment path
+### Ordered deployment path
 
 For every non-docs-only build, CodeBuild performs the production handoff in
 this order:
@@ -91,7 +210,7 @@ sufficient; it fails explicitly if that template grows beyond CloudFormation's
 would allow reviewed IAM, provider, logging, or runtime changes to remain
 source-only while image updates appeared successful.
 
-## CodeBuild source checkout
+### CodeBuild source checkout
 
 The build first reads stable ECS `ImageTag` and AgentCore `AgentImageTag`
 parameters and verifies their ancestry against the checked-out SHA on main.
@@ -127,7 +246,7 @@ missing or invalid, a commit cannot be resolved, or the changed paths are
 ambiguous. An unavailable previous commit can waste a deployment, but can
 never incorrectly skip one.
 
-## One-time bootstrap
+### One-time bootstrap
 
 The ECS stack expects its ALB access-log bucket to exist before access logging
 is enabled. The bucket remains outside the stack so CDK does not attempt to
@@ -170,7 +289,7 @@ permission to assume the account-and-region-specific CDK bootstrap roles, an
 operator must run the scoped `AiWorkspaceEcsStack` deployment once from the
 reviewed commit. Do not leave a separate hand-written IAM policy behind.
 
-## Verification
+### Verification
 
 The deployment receipt is the source for the exact task-definition revisions
 that served a commit. The final authenticated smoke must pass before the
@@ -200,7 +319,7 @@ The expected value is `1`. The project is tracked for full infrastructure-as-cod
 ownership separately; until then, this setting is part of the production
 deployment contract.
 
-## Missing webhook recovery (#924)
+### Missing webhook recovery (#924)
 
 `Deploy Retrigger` runs on every push to main with per-SHA concurrency (no
 pending-SHA replacement). After a two-minute webhook grace period it inspects
@@ -235,7 +354,7 @@ has contents-write but no AWS identity or checkout. Like any main-trusted
 deployment role, it must be protected by main's review gate; it is not usable
 from PR workflows. Existing eval-role trust is unchanged.
 
-### First rollout / bootstrap
+#### First rollout / bootstrap
 
 The role and build-role DescribeStacks/snapshot permissions must exist before
 the new guard and Action can work. After CI, independent review and Rob's
@@ -251,7 +370,7 @@ or live acceptance is claimed merely because unit tests pass.
 Snapshots are retained; this role has no DeleteDBSnapshot permission. Inspect
 storage growth and handle retention through the operator's backup policy.
 
-## Operations alarms
+### Operations alarms
 
 Apply or reconcile the production alarm set with an inbox that operators
 actively monitor:
@@ -274,7 +393,7 @@ load-balancer-generated 5xx responses. The chat-worker log metric matches the
 emitted `[chat-run-worker-error]` marker — including the poison-pill
 quarantine described below, so an exhausted run reaches the same inbox.
 
-### Who owns which alarm
+#### Who owns which alarm
 
 Alarms that depend on a CDK-managed resource are owned by
 `AiWorkspaceEcsStack`; the rest are applied by the script above. Nothing is
@@ -301,7 +420,7 @@ The CDK alarms send to the `ai-workspace-ops-alerts` topic by name. Run
 email subscription exist; CloudWatch accepts the action ARN either way, but a
 missing topic means a missing notification.
 
-## Rollback
+### Rollback
 
 Task definitions pin a commit-SHA tag (`ImageTag` stack parameter, #449), and
 `latest` is only the parameter default for manual deploys.

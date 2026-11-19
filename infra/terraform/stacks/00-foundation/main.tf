@@ -16,6 +16,9 @@ locals {
   partition    = data.aws_partition.current.partition
   account_root = "arn:${local.partition}:iam::${var.account_id}:root"
 
+  # The ops alert topic of 60-observability, applied later, by its name.
+  ops_topic_arn = "arn:${local.partition}:sns:${var.aws_region}:${var.account_id}:${var.name_prefix}-ops-alerts"
+
   # Access to every key is delegated to IAM through the account root.
   key_policy_root = {
     Sid       = "AccountAdministration"
@@ -50,14 +53,29 @@ locals {
     Resource  = "*"
     Condition = {
       StringEquals = {
-        "kms:EncryptionContext:aws:sns:topicArn" = "arn:${local.partition}:sns:${var.aws_region}:${var.account_id}:${var.name_prefix}-ops-alerts"
+        "kms:EncryptionContext:aws:sns:topicArn" = local.ops_topic_arn
+      }
+    }
+  }
+
+  # The break-glass rule of the ci-identity module publishes to the same
+  # topic through EventBridge, which needs the key the same way.
+  key_policy_events = {
+    Sid       = "EventBridgeToOpsTopic"
+    Effect    = "Allow"
+    Principal = { Service = "events.amazonaws.com" }
+    Action    = ["kms:Decrypt", "kms:GenerateDataKey*"]
+    Resource  = "*"
+    Condition = {
+      StringEquals = {
+        "kms:EncryptionContext:aws:sns:topicArn" = local.ops_topic_arn
       }
     }
   }
 
   symmetric_keys = {
     data    = { description = "data at rest: database, buckets, images", statements = [local.key_policy_root] }
-    logs    = { description = "log groups and the ops alert topic", statements = [local.key_policy_root, local.key_policy_logs, local.key_policy_alarms] }
+    logs    = { description = "log groups and the ops alert topic", statements = [local.key_policy_root, local.key_policy_logs, local.key_policy_alarms, local.key_policy_events] }
     secrets = { description = "Secrets Manager secrets", statements = [local.key_policy_root] }
   }
 
@@ -77,6 +95,8 @@ locals {
     "ecr/agent_repo_url" = aws_ecr_repository.this["agent"].repository_url
     # Every stack that creates a role sets this boundary on it.
     "iam/workload_boundary_arn" = module.ci_identity.workload_boundary_policy_arn
+    # 60-observability lets this rule publish to the ops alert topic.
+    "events/break_glass_rule_arn" = module.ci_identity.break_glass_rule_arn
   }
 }
 
@@ -203,6 +223,9 @@ module "ci_identity" {
   eval_model_ids                = var.eval_model_ids
   eval_inference_profile_prefix = var.eval_inference_profile_prefix
   eval_inference_regions        = var.eval_inference_regions
+
+  break_glass_principal_arns = var.break_glass_principal_arns
+  ops_topic_arn              = local.ops_topic_arn
 }
 
 # --- Published outputs -------------------------------------------------------

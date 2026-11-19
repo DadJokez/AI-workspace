@@ -27,3 +27,13 @@ output "workload_boundary_policy_arn" {
   description = "Permissions boundary every role under /comparative/<env>/ must carry."
   value       = aws_iam_policy.workload_boundary.arn
 }
+
+output "break_glass_role_arn" {
+  description = "ARN of the break-glass role (docs/runbooks/BREAK_GLASS.md)."
+  value       = aws_iam_role.break_glass.arn
+}
+
+output "break_glass_rule_arn" {
+  description = "ARN of the EventBridge rule that reports every assumption of the break-glass role; the ops topic's policy lets it publish."
+  value       = aws_cloudwatch_event_rule.break_glass_assumed.arn
+}

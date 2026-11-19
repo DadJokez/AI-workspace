@@ -52,6 +52,11 @@ eval_model_ids                = ["REPLACE_ME_EVAL_MODEL_ID"]
 eval_inference_profile_prefix = "us."
 eval_inference_regions        = ["us-east-1", "us-east-2", "us-west-2"]
 
+# The people who may assume the break-glass role, each by the ARN of an IAM
+# user with MFA (docs/runbooks/BREAK_GLASS.md). A role named here works only
+# from a session that carries MFA, which a chained role session does not.
+break_glass_principal_arns = ["REPLACE_ME_BREAK_GLASS_PRINCIPAL_ARN"]
+
 # --- 10-network --------------------------------------------------------------
 
 # The sandbox profile: a VPC of its own with one NAT gateway, no interface

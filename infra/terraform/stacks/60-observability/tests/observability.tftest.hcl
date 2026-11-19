@@ -24,6 +24,11 @@ override_data {
 }
 
 override_data {
+  target = data.aws_ssm_parameter.break_glass_rule_arn
+  values = { insecure_value = "arn:aws:events:us-east-1:111122223333:rule/cmp-unit-break-glass-assumed" }
+}
+
+override_data {
   target = data.aws_ssm_parameter.cluster_name
   values = { insecure_value = "cmp-unit-cluster" }
 }
@@ -110,6 +115,7 @@ run "sandbox" {
   assert {
     condition = (
       data.aws_ssm_parameter.logs_kms_key_arn.name == "/comparative/unit/00-foundation/kms/logs_arn" &&
+      data.aws_ssm_parameter.break_glass_rule_arn.name == "/comparative/unit/00-foundation/events/break_glass_rule_arn" &&
       data.aws_ssm_parameter.cluster_name.name == "/comparative/unit/30-platform/cluster_name" &&
       data.aws_ssm_parameter.alb_arn_suffix.name == "/comparative/unit/30-platform/alb_arn_suffix" &&
       data.aws_ssm_parameter.web_target_group_arn_suffix.name == "/comparative/unit/30-platform/tg/web_arn_suffix" &&

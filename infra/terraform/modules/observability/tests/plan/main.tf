@@ -46,8 +46,9 @@ module "observability" {
   name_prefix = "cmp-unit"
   aws_region  = "us-east-1"
 
-  kms_key_arn  = "arn:aws:kms:us-east-1:111122223333:key/00000000-0000-0000-0000-000000000001"
-  alert_emails = ["ops@example.com"]
+  kms_key_arn     = "arn:aws:kms:us-east-1:111122223333:key/00000000-0000-0000-0000-000000000001"
+  alert_emails    = ["ops@example.com"]
+  event_rule_arns = ["arn:aws:events:us-east-1:111122223333:rule/cmp-unit-break-glass-assumed"]
 
   cluster_name = "cmp-unit-cluster"
   service_names = {

@@ -129,6 +129,34 @@ expect "a human-applied stack with pending changes fails and says why" \
   test "$status" = 1 -a -n "$(grep 'a human applies this stack' <<<"$output")"
 expect "the check never applies" not_applied
 
+echo "drift:"
+
+drift_fixture="$here/fixtures/plan-report/drift.json"
+run "$none" drift unit 40-services "$tmp/drift-none"
+expect "no changes (exit 0): passes and reports no drift" test "$status" = 0 -a "$(report .drift)" = false
+expect "the drift plan asks for the detailed exit code and takes no state lock" \
+  grep -q -- "-input=false -lock=false -detailed-exitcode -out=$outdir/plan.tfplan" "$log"
+expect "nothing changed outside Terraform is written for the issue" \
+  test "$(cat "$outdir/outside.md")" = "Nothing changed outside Terraform."
+FAKE_PLAN_EXIT=2 run "$drift_fixture" drift unit 40-services "$tmp/drift-found"
+expect "changes (exit 2): passes and reports drift" test "$status" = 0 -a "$(report .drift)" = true
+expect "the report still counts the changes" test "$(report .changes)" = 3
+expect "what changed outside Terraform is written for the issue" \
+  grep -q '^\*\*Changed outside Terraform: 2 changed, 1 deleted\*\*$' "$outdir/outside.md"
+expect "the drift plan never applies" not_applied
+FAKE_PLAN_EXIT=1 run "$none" drift unit 40-services "$tmp/drift-error"
+expect "a failed plan (exit 1) fails and is not read as drift" \
+  test "$status" = 1 -a -n "$(grep 'the plan failed (exit 1)' <<<"$output")"
+expect "a failed plan writes no report" test ! -f "$outdir/report.json"
+run "$none" drift unit 90-missing "$tmp/drift-missing"
+expect "an unknown stack fails before Terraform, so tf.sh's exit 2 is never read as drift" \
+  test "$status" = 1 -a ! -s "$log"
+printf 'account_id = "REPLACE_ME_ACCOUNT_ID"\n' >> "$root/envs/unit/env.tfvars"
+FAKE_PLAN_EXIT=2 run "$drift_fixture" drift unit 40-services "$tmp/drift-placeholder"
+expect "an environment with placeholders fails before Terraform" \
+  test "$status" = 1 -a ! -s "$log" -a -n "$(grep 'placeholder values' <<<"$output")"
+sed -i '/REPLACE_ME/d' "$root/envs/unit/env.tfvars"
+
 echo "apply:"
 
 run "$none" apply unit 40-services "$tmp/apply-none"
@@ -186,7 +214,8 @@ expect "nothing is planned for it" bash -c "! grep -q ' plan ' '$log'"
 sed -i '/REPLACE_ME/d' "$root/envs/unit/env.tfvars"
 
 for args in "deploy unit 40-services $tmp/x" "plan unit 40-services" "plan ../unit 40-services $tmp/x" \
-  "plan unit services $tmp/x" "check unit 40-services $tmp/x extra" "apply unit 40-services $tmp/x $tmp/missing.json"; do
+  "plan unit services $tmp/x" "check unit 40-services $tmp/x extra" "drift unit 40-services $tmp/x extra" \
+  "apply unit 40-services $tmp/x $tmp/missing.json"; do
   # shellcheck disable=SC2086 # the arguments are split on purpose
   run "$none" $args
   expect "usage error: $args" test "$status" = 2 -a ! -s "$log"

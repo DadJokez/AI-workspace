@@ -67,6 +67,25 @@ fi
 expect "no-op resources and data reads are not changes" "No changes to resources." \
   "$(bash "$script" summary "$none")"
 
+echo "outside:"
+
+drift="$fixtures/drift.json"
+outside=$(bash "$script" outside "$drift")
+expect "totals of what changed outside Terraform" \
+  "**Changed outside Terraform: 2 changed, 1 deleted**" "$(head -n 1 <<<"$outside")"
+# shellcheck disable=SC2016 # the backticks are Markdown, not a command
+expect "one row per resource type changed outside Terraform" \
+  '| `aws_ssm_parameter` | 1 | 1 |
+| `aws_vpc_security_group_ingress_rule` | 1 | 0 |' \
+  "$(grep '^| `' <<<"$outside")"
+if grep -qE 'hunter2|console|sgr-|sg-0|module\.|sg/|web-from-alb' <<<"$outside"; then
+  bad "the outside summary carries no value, address or for_each key" "$outside"
+else
+  ok "the outside summary carries no value, address or for_each key"
+fi
+expect "a plan without resource_drift changed nothing outside" "Nothing changed outside Terraform." \
+  "$(bash "$script" outside "$mixed")"
+
 echo "changes:"
 
 expect "every changed managed resource counts, nothing else" 11 "$(bash "$script" changes "$mixed")"
