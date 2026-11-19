@@ -1,12 +1,13 @@
 name: Terraform CI
 
 # Static checks for infra/terraform: formatting, validation, lint, a config
-# scan, the Conftest rules against their fixtures, and the module tests.
+# scan, the Conftest rules against their fixtures, the module tests and the
+# fixtures of the pipeline scripts.
 #
 # This workflow holds no cloud credentials and never reads state: it requests
 # no OIDC token (no `id-token` permission), configures no AWS credentials and
-# runs `terraform init -backend=false` only. Planning against an account is a
-# separate workflow.
+# runs `terraform init -backend=false` only. Planning against an account is
+# terraform-plan.yml.
 #
 # The steps call infra/terraform/check.sh, so a local run and CI are the same
 # commands.
@@ -77,6 +78,9 @@ jobs:
 
       - name: conftest (rules against their fixtures)
         run: infra/terraform/check.sh policy
+
+      - name: pipeline scripts (fixtures)
+        run: infra/terraform/check.sh scripts
 
       - name: Config scan (Checkov)
         uses: bridgecrewio/checkov-action@3f0caf0c3aa9f56ade6b49f6e60b63aaeafb75a3 # v12.3141.0

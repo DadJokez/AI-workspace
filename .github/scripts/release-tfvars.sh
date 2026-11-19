@@ -23,6 +23,17 @@
 #       Needs `cosign` on PATH, registry credentials, and SIGNING_KEY (a
 #       cosign key reference, for example awskms:///<key arn>).
 #
+#   release-tfvars.sh signed <commit> <env>
+#       The last two checks of `verify` for envs/<env>/release.auto.tfvars as
+#       it is in <commit>: the file is a release, its id is a commit contained
+#       in <commit>, and every image is signed for it. The apply workflow runs
+#       this on the commit it deploys. Same needs as `verify`.
+#
+#   release-tfvars.sh promote <commit> <from env> <to env>
+#       Prints the release file of <to env> that deploys the release of
+#       envs/<from env>/release.auto.tfvars as it is in <commit>: the same id
+#       and the same five digests. The file is checked as `verify` checks it.
+#
 # exit: 0 when the file was written or the release verified, 1 when the
 #       release is refused (the reason is on stderr), 2 on a usage error.
 set -euo pipefail
@@ -41,7 +52,7 @@ refuse() {
 }
 
 usage() {
-  echo "usage: release-tfvars.sh write <env> <release.json> | verify <base> <head>" >&2
+  echo "usage: release-tfvars.sh write <env> <release.json> | verify <base> <head> | signed <commit> <env> | promote <commit> <from env> <to env>" >&2
   exit 2
 }
 
@@ -83,25 +94,95 @@ write() {
     refs[$component]=$ref
   done
 
+  render "$env_name" "$release_id" "${refs[web]}" "${refs[worker]}" "${refs[memory-worker]}" \
+    "${refs[migrator]}" "${refs[agent]}"
+}
+
+# The file itself. Arguments: env, release id, and the images in the order of
+# $components.
+render() {
   cat <<EOF
-# The release deployed to $env_name: its id and its five images, each by
-# digest. The release workflow (.github/workflows/build-release.yml) replaces
-# this whole file; nothing else belongs in it, and a deploy changes nothing
-# else.
+# The release deployed to $1: its id and its five images, each by
+# digest. The release workflow (.github/workflows/build-release.yml) or a
+# promotion (.github/workflows/promote.yml) replaces this whole file; nothing
+# else belongs in it, and a deploy changes nothing else.
 
-release_id = "$release_id"
+release_id = "$2"
 
-image_web           = "${refs[web]}"
-image_worker        = "${refs[worker]}"
-image_memory_worker = "${refs[memory-worker]}"
-image_migrator      = "${refs[migrator]}"
-image_agent         = "${refs[agent]}"
+image_web           = "$3"
+image_worker        = "$4"
+image_memory_worker = "$5"
+image_migrator      = "$6"
+image_agent         = "$7"
 EOF
 }
 
-verify() {
-  local base=$1 head=$2 path line key value component variable
+# Reads envs/<env>/release.auto.tfvars as it is in commit $1 (path $2) into
+# the global `values`, refusing anything but the six values of a release with
+# every image by digest.
+declare -A values=()
+parse() { # commit path
+  local commit=$1 path=$2 line key value component variable
+  values=()
+  git cat-file -e "$commit:$path" 2>/dev/null || refuse "$path does not exist in $commit"
+  # Every line is a comment, blank, or one of the six assignments, each once.
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ "$line" =~ ^[[:space:]]*(#.*)?$ ]] && continue
+    [[ "$line" =~ ^([a-z_]+)[[:space:]]*=[[:space:]]*\"([^\"]*)\"$ ]] ||
+      refuse "$path: unexpected line: $line"
+    key=${BASH_REMATCH[1]}
+    value=${BASH_REMATCH[2]}
+    [ -z "${values[$key]+set}" ] || refuse "$path: $key is set twice"
+    values[$key]=$value
+  done < <(git show "$commit:$path")
+
+  local expected=(release_id)
+  for component in "${components[@]}"; do
+    expected+=("$(variable_of "$component")")
+  done
+  for key in "${expected[@]}"; do
+    [ -n "${values[$key]+set}" ] || refuse "$path: $key is not set"
+  done
+  ((${#values[@]} == ${#expected[@]})) ||
+    refuse "$path sets something other than: ${expected[*]}"
+
+  check_release_id "${values[release_id]}"
+  for component in "${components[@]}"; do
+    variable=$(variable_of "$component")
+    check_image "$variable" "${values[$variable]}"
+  done
+}
+
+# The release id of `values` is a commit contained in $1, and every image is
+# signed for it as its component. No transparency log is used
+# (build-release.yml signs without one), so the signature is checked against
+# the key alone.
+check_signed() { # commit path
+  local commit=$1 path=$2 release_id=${values[release_id]} component variable
   [ -n "${SIGNING_KEY:-}" ] || refuse "SIGNING_KEY is not set"
+  git cat-file -e "$release_id^{commit}" 2>/dev/null ||
+    refuse "release_id $release_id is not a commit of this repository"
+  git merge-base --is-ancestor "$release_id" "$commit" ||
+    refuse "release_id $release_id is not on the default branch"
+
+  for component in "${components[@]}"; do
+    variable=$(variable_of "$component")
+    cosign verify --key "$SIGNING_KEY" --insecure-ignore-tlog=true \
+      -a "release_id=$release_id" -a "component=$component" \
+      "${values[$variable]}" >/dev/null ||
+      refuse "$variable = ${values[$variable]} has no valid signature for release $release_id as '$component'"
+    echo "signed  $variable = ${values[$variable]}"
+  done
+  echo "release $release_id verified for $path"
+}
+
+env_file() { # env -> path of its release file
+  [[ "$1" =~ ^[a-z0-9-]+$ ]] || refuse "'$1' is not an environment name"
+  echo "infra/terraform/envs/$1/release.auto.tfvars"
+}
+
+verify() {
+  local base=$1 head=$2 path
 
   local changed=()
   while IFS= read -r -d '' path; do
@@ -114,51 +195,26 @@ verify() {
   [[ "$path" =~ $release_file ]] ||
     refuse "a release changes envs/<env>/release.auto.tfvars only; this change touches $path"
 
-  # Every line is a comment, blank, or one of the six assignments, each once.
-  local -A values=()
-  while IFS= read -r line || [ -n "$line" ]; do
-    [[ "$line" =~ ^[[:space:]]*(#.*)?$ ]] && continue
-    [[ "$line" =~ ^([a-z_]+)[[:space:]]*=[[:space:]]*\"([^\"]*)\"$ ]] ||
-      refuse "$path: unexpected line: $line"
-    key=${BASH_REMATCH[1]}
-    value=${BASH_REMATCH[2]}
-    [ -z "${values[$key]+set}" ] || refuse "$path: $key is set twice"
-    values[$key]=$value
-  done < <(git show "$head:$path")
+  parse "$head" "$path"
+  check_signed "$base" "$path"
+}
 
-  local expected=(release_id)
-  for component in "${components[@]}"; do
-    expected+=("$(variable_of "$component")")
-  done
-  for key in "${expected[@]}"; do
-    [ -n "${values[$key]+set}" ] || refuse "$path: $key is not set"
-  done
-  ((${#values[@]} == ${#expected[@]})) ||
-    refuse "$path sets something other than: ${expected[*]}"
+signed() {
+  local commit=$1 path
+  path=$(env_file "$2")
+  parse "$commit" "$path"
+  check_signed "$commit" "$path"
+}
 
-  local release_id=${values[release_id]}
-  check_release_id "$release_id"
-  for component in "${components[@]}"; do
-    variable=$(variable_of "$component")
-    check_image "$variable" "${values[$variable]}"
-  done
-
-  git cat-file -e "$release_id^{commit}" 2>/dev/null ||
-    refuse "release_id $release_id is not a commit of this repository"
-  git merge-base --is-ancestor "$release_id" "$base" ||
-    refuse "release_id $release_id is not on the default branch"
-
-  # No transparency log is used (build-release.yml signs without one), so the
-  # signature is checked against the key alone.
-  for component in "${components[@]}"; do
-    variable=$(variable_of "$component")
-    cosign verify --key "$SIGNING_KEY" --insecure-ignore-tlog=true \
-      -a "release_id=$release_id" -a "component=$component" \
-      "${values[$variable]}" >/dev/null ||
-      refuse "$variable = ${values[$variable]} has no valid signature for release $release_id as '$component'"
-    echo "signed  $variable = ${values[$variable]}"
-  done
-  echo "release $release_id verified for $path"
+promote() {
+  local commit=$1 from to
+  from=$(env_file "$2")
+  to=$(env_file "$3")
+  [ "$2" != "$3" ] || refuse "a release is promoted from one environment to another, not to itself"
+  git cat-file -e "$commit:$to" 2>/dev/null || refuse "$to does not exist in $commit"
+  parse "$commit" "$from"
+  render "$3" "${values[release_id]}" "${values[image_web]}" "${values[image_worker]}" \
+    "${values[image_memory_worker]}" "${values[image_migrator]}" "${values[image_agent]}"
 }
 
 [ "$#" -ge 1 ] || usage
@@ -172,6 +228,14 @@ case "$command" in
   verify)
     [ "$#" -eq 2 ] || usage
     verify "$@"
+    ;;
+  signed)
+    [ "$#" -eq 2 ] || usage
+    signed "$@"
+    ;;
+  promote)
+    [ "$#" -eq 3 ] || usage
+    promote "$@"
     ;;
   *) usage ;;
 esac

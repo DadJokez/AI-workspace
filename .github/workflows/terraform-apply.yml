@@ -1,0 +1,581 @@
+name: Terraform Apply
+
+# Apply on merge (docs/roadmap/KOCH_MIGRATION_SPEC.md, WP-15). A push to main
+# that changes infra/terraform applies what it affects, one job per
+# environment, each in the GitHub environment of the same name.
+#
+# A release (envs/<env>/release.auto.tfvars changed):
+#   1. verify that every digest of the release file is signed for its
+#      release id, and that the id is a commit on main; fail closed;
+#   2. apply 35-deploy-tasks;
+#   3. if packages/db/drizzle changed since the release the environment last
+#      deployed successfully, snapshot the database (pre-migrate-<sha12>-<run>)
+#      and delete such snapshots older than snapshot_keep_days;
+#   4. run the migrator task and require exit code 0;
+#   5. apply 50-agentcore (once it exists), then 40-services: Terraform waits
+#      for steady state, and the circuit breaker rolls a bad task set back,
+#      which fails the apply;
+#   6. run the smoke task; when it fails, open a pull request that reverts the
+#      merged commit (never merged automatically) and fail;
+#   7. record a GitHub deployment (task terraform-apply) with the release, the
+#      plan fingerprints, the snapshot and both task receipts, success or
+#      failure, and print the same JSON as the job summary.
+# Any other change applies the affected stacks in the apply order. Each stack
+# is planned again first, and the plan must have the fingerprint of the plan
+# reviewed on the merged pull request (artifact of terraform-plan.yml for its
+# head sha) or change nothing. A stack only a human applies (HUMAN_APPLIED
+# below) is only checked: with changes pending, the job stops before applying
+# anything and says which stacks to apply by hand, after which it is re-run.
+#
+# Until the cutover (WP-20) only personal-stage is deployed (DEPLOY_ENVIRONMENTS
+# below); production stays on CodeBuild. An environment whose files still carry
+# REPLACE_ME is skipped with a notice.
+#
+# Trust boundary:
+#   - the apply role trusts the OIDC subject repo:<owner>/<repo>:environment:<env>
+#     only, which only a job that names the GitHub environment <env> gets. The
+#     environment's protection rules (Rob's settings) decide which branch and
+#     which reviewer may start it. A pull request cannot assume the role;
+#     terraform-plan.yml proves that on every run;
+#   - signature checks and the human-applied checks use the read-only plan
+#     role; the apply role is assumed only for the applies and the tasks;
+#   - releases only move forward: a run refuses to deploy a commit that is not
+#     a descendant of the last commit deployed successfully to the
+#     environment, so re-running an old run cannot roll a newer release back.
+#     Rolling back is a revert pull request;
+#   - a plan that destroys or replaces a stateful resource is applied only if
+#     it is exactly the reviewed plan and the merged pull request carries
+#     allow-stateful-replace applied by a human, checked here with main's copy
+#     of the script;
+#   - no long-lived credential: AWS is OIDC, the revert pull request is opened
+#     with the release bot's installation token (build-release.yml).
+#
+# One run per environment at a time; GitHub keeps one pending run per group,
+# so a third queued run replaces the second. The replaced run's changes are
+# then applied by no run: drift detection (WP-16) reports them, and a pull
+# request that touches the stack applies them.
+#
+# Repository variables: TF_ROLE_ARNS (see terraform-plan.yml),
+# RELEASE_SIGNING_KEY_ARN (as in build-release.yml), RELEASE_BOT_CLIENT_ID and
+# the secret RELEASE_BOT_PRIVATE_KEY (optional; without them the revert pull
+# request is described in the job summary instead).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/terraform/**"
+
+# No workflow-wide grant: each job takes only what it needs.
+permissions: {}
+
+env:
+  # The environments this workflow deploys. WP-20 adds personal-prod.
+  DEPLOY_ENVIRONMENTS: personal-stage
+  # Stacks the apply role cannot apply (infra/terraform/README.md, "What the
+  # apply role cannot do"): a human applies them.
+  HUMAN_APPLIED: 00-foundation 20-data 30-platform
+
+jobs:
+  affected:
+    name: affected environments
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      environments: ${{ steps.affected.outputs.environments }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify the pipeline scripts
+        run: infra/terraform/check.sh scripts
+
+      # One entry per environment: the stacks to check (human-applied) and to
+      # apply, in apply order and in three phases around the migrator and
+      # smoke tasks, which stacks must match a reviewed plan, and whether the
+      # release changed.
+      - name: Find the affected environments
+        id: affected
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$BEFORE" =~ ^[0-9a-f]{40}$ ]] || [ "$BEFORE" = 0000000000000000000000000000000000000000 ] ||
+            ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            echo "::error::the push has no previous commit to compare with; apply by hand (infra/terraform/README.md)"
+            exit 1
+          fi
+          git diff --name-only --no-renames -z "$BEFORE" "$GITHUB_SHA" \
+            | infra/terraform/scripts/affected.sh > "$RUNNER_TEMP/affected.tsv"
+          echo "Affected (env, stack, kind):"
+          cat "$RUNNER_TEMP/affected.tsv"
+
+          : > "$RUNNER_TEMP/deploy.tsv"
+          while IFS= read -r env_name; do
+            if [[ " $DEPLOY_ENVIRONMENTS " != *" $env_name "* ]]; then
+              echo "::notice::$env_name is not deployed by this workflow until the cutover"
+            elif ! infra/terraform/scripts/placeholders.sh "infra/terraform/envs/$env_name" > /dev/null; then
+              echo "::warning::envs/$env_name still has placeholder values; nothing was applied to it"
+            else
+              grep -P "^$env_name\t" "$RUNNER_TEMP/affected.tsv" >> "$RUNNER_TEMP/deploy.tsv"
+            fi
+          done < <(cut -f1 "$RUNNER_TEMP/affected.tsv" | sort -u)
+
+          # The pairs arrive in apply order (affected.sh), which each list
+          # keeps. Phases: everything up to 35-deploy-tasks, then the
+          # migrator, then 50-agentcore and 40-services, then the smoke task,
+          # then 60-observability.
+          environments=$(jq -Rnc --arg human "$HUMAN_APPLIED" '
+            ($human | split(" ")) as $human
+            | ["50-agentcore", "40-services"] as $services
+            | ["60-observability"] as $after
+            | def among($list): .stack as $s | $list | index($s) != null;
+            [inputs | split("\t") | {env: .[0], stack: .[1], kind: .[2]}]
+            | group_by(.env)
+            | map(. as $pairs
+              | def names(f): [$pairs[] | select(f) | .stack] | join(" ");
+              {
+                env: $pairs[0].env,
+                release: any($pairs[]; .kind != "infra"),
+                human: names(among($human)),
+                reviewed: names(.kind != "release" and (among($human) | not)),
+                before_migrate: names((among($human) or among($services) or among($after)) | not),
+                services: names(among($services)),
+                after_smoke: names(among($after))
+              })' < "$RUNNER_TEMP/deploy.tsv")
+          echo "environments=$environments" >> "$GITHUB_OUTPUT"
+          jq . <<<"$environments"
+
+  apply:
+    name: apply ${{ matrix.env }}
+    needs: affected
+    if: needs.affected.outputs.environments != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.affected.outputs.environments) }}
+    # The subject the apply role trusts. Its protection rules are Rob's.
+    environment: ${{ matrix.env }}
+    concurrency:
+      group: tf-apply-${{ matrix.env }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+      # The reviewed plan artifacts of the merged pull request.
+      actions: read
+      # The record of this deploy, and the previous one.
+      deployments: write
+      # The merged pull request, its labels and timeline.
+      pull-requests: read
+      issues: read
+    env:
+      TF_ENV: ${{ matrix.env }}
+      RELEASE: ${{ matrix.release }}
+      HUMAN_STACKS: ${{ matrix.human }}
+      REVIEWED_STACKS: ${{ matrix.reviewed }}
+      TF_ROLE_ARNS: ${{ vars.TF_ROLE_ARNS }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      TF_IN_AUTOMATION: "1"
+      TF_INPUT: "0"
+      CHECKPOINT_DISABLE: "1"
+    steps:
+      # Full history: release ids, the migration diff and the revert.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve roles, region and records
+        id: setup
+        run: |
+          set -euo pipefail
+          roles=${TF_ROLE_ARNS:-}
+          [ -n "$roles" ] || roles='{}'
+          plan_arn=$(jq -r --arg e "$TF_ENV" '.[$e].plan // empty' <<<"$roles" 2>/dev/null || true)
+          apply_arn=$(jq -r --arg e "$TF_ENV" '.[$e].apply // empty' <<<"$roles" 2>/dev/null || true)
+          [[ "$plan_arn" =~ ^arn:aws[a-z-]*:iam::[0-9]{12}:role/cmp-$TF_ENV-tf-plan$ ]] &&
+            [[ "$apply_arn" =~ ^arn:aws[a-z-]*:iam::[0-9]{12}:role/cmp-$TF_ENV-tf-apply$ ]] || {
+            echo "::error::TF_ROLE_ARNS has no plan and apply role for $TF_ENV (see the header of terraform-plan.yml)"
+            exit 1
+          }
+          env_file="infra/terraform/envs/$TF_ENV/env.tfvars"
+          region=$(sed -n 's/^aws_region[[:space:]]*=[[:space:]]*"\([a-z0-9-]*\)"$/\1/p' "$env_file" | head -n 1)
+          [ -n "$region" ] || { echo "::error::$env_file sets no aws_region"; exit 1; }
+          production=false
+          ! grep -Eq '^production[[:space:]]*=[[:space:]]*true[[:space:]]*$' "$env_file" || production=true
+          {
+            echo "plan_role_arn=$plan_arn"
+            echo "apply_role_arn=$apply_arn"
+            echo "region=$region"
+            echo "production=$production"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "WORK=$RUNNER_TEMP/apply"
+            echo "RECORD=$RUNNER_TEMP/record"
+            echo "RELEASE_FILE=infra/terraform/envs/$TF_ENV/release.auto.tfvars"
+          } >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/apply" "$RUNNER_TEMP/record"
+
+      # The last commit deployed successfully, from the records this workflow
+      # writes. A commit that does not descend from it is older: refused.
+      - name: Releases only move forward
+        id: previous
+        run: |
+          set -euo pipefail
+          previous_sha="" previous_release=""
+          gh api "repos/$GH_REPO/deployments?environment=$TF_ENV&task=terraform-apply&per_page=50" > "$RUNNER_TEMP/deployments.json"
+          while IFS=$'\t' read -r id sha release; do
+            state=$(gh api "repos/$GH_REPO/deployments/$id/statuses?per_page=1" --jq '.[0].state // ""')
+            if [ "$state" = success ]; then
+              previous_sha=$sha
+              previous_release=$release
+              break
+            fi
+          done < <(jq -r '.[] | [.id, .sha, (.payload.release_id // "")] | @tsv' "$RUNNER_TEMP/deployments.json")
+
+          if [ -n "$previous_sha" ]; then
+            git merge-base --is-ancestor "$previous_sha" "$GITHUB_SHA" || {
+              echo "::error::$TF_ENV last deployed $previous_sha, which this commit does not contain: this run is older than what is deployed. Roll back with a revert pull request instead."
+              exit 1
+            }
+            echo "$TF_ENV last deployed $previous_sha (release ${previous_release:-none})"
+          else
+            echo "$TF_ENV has no successful deployment on record"
+          fi
+          {
+            echo "sha=$previous_sha"
+            echo "release_id=$previous_release"
+          } >> "$GITHUB_OUTPUT"
+
+      # The plans reviewed on the merged pull request, by the head sha it had
+      # when it merged. Only artifacts of terraform-plan.yml on a pull request
+      # count. Also decides allow-stateful-replace with main's script.
+      - name: Fetch the reviewed plans
+        if: env.REVIEWED_STACKS != ''
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/commits/$GITHUB_SHA/pulls" > "$RUNNER_TEMP/pulls.json"
+          read -r pr head < <(jq -r --arg sha "$GITHUB_SHA" \
+            '[.[] | select(.merged_at != null and .merge_commit_sha == $sha)][0] | "\(.number // "") \(.head.sha // "")"' \
+            "$RUNNER_TEMP/pulls.json")
+          [ -n "${pr:-}" ] && [[ "${head:-}" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::$GITHUB_SHA is not the merge of a pull request, so no plan of it was reviewed"
+            exit 1
+          }
+          echo "merged pull request #$pr, head $head"
+
+          for stack in $REVIEWED_STACKS; do
+            name="tfplan-$TF_ENV-$stack-$head"
+            gh api "repos/$GH_REPO/actions/artifacts?name=$name&per_page=100" > "$RUNNER_TEMP/artifacts.json"
+            read -r id run_id < <(jq -r --arg head "$head" '
+              [.artifacts[] | select(.expired == false and .workflow_run.head_sha == $head)]
+              | sort_by(.created_at) | last | "\(.id // "") \(.workflow_run.id // "")"' "$RUNNER_TEMP/artifacts.json")
+            [ -n "${id:-}" ] || {
+              echo "::error::no reviewed plan $name: the pull request's plan of $stack did not pass, or its artifact expired. Open a pull request that shows the plan as it is now."
+              exit 1
+            }
+            run=$(gh api "repos/$GH_REPO/actions/runs/$run_id" --jq '[.path, .event, .head_sha] | @tsv')
+            [ "$run" = "$(printf '.github/workflows/terraform-plan.yml\tpull_request\t%s' "$head")" ] || {
+              echo "::error::artifact $name was not uploaded by terraform-plan.yml on the pull request ($run)"
+              exit 1
+            }
+            mkdir -p "$RUNNER_TEMP/reviewed/$stack"
+            gh api "repos/$GH_REPO/actions/artifacts/$id/zip" > "$RUNNER_TEMP/reviewed/$stack.zip"
+            unzip -q -o "$RUNNER_TEMP/reviewed/$stack.zip" report.json -d "$RUNNER_TEMP/reviewed/$stack"
+            echo "reviewed $stack: fingerprint $(jq -r .fingerprint "$RUNNER_TEMP/reviewed/$stack/report.json")"
+          done
+
+          gh api "repos/$GH_REPO/issues/$pr/labels" --paginate --slurp > "$RUNNER_TEMP/labels.json"
+          gh api "repos/$GH_REPO/issues/$pr/timeline" --paginate --slurp > "$RUNNER_TEMP/timeline.json"
+          decision=$(bash infra/terraform/scripts/stateful-replace-allowed.sh "$RUNNER_TEMP/labels.json" "$RUNNER_TEMP/timeline.json")
+          echo "$decision"
+          allowed=false
+          [ "$(tail -n 1 <<<"$decision")" != "allowed=true" ] || allowed=true
+          {
+            echo "REVIEWED=$RUNNER_TEMP/reviewed"
+            echo "ALLOW_STATEFUL_REPLACE=$allowed"
+          } >> "$GITHUB_ENV"
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.17.2
+          terraform_wrapper: false
+
+      - name: Setup Conftest
+        run: |
+          go install github.com/open-policy-agent/conftest@v0.71.1
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install cosign
+        if: env.RELEASE == 'true'
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: v3.1.4
+
+      # Read-only until something is to be applied.
+      - name: Assume the plan role
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        with:
+          role-to-assume: ${{ steps.setup.outputs.plan_role_arn }}
+          aws-region: ${{ steps.setup.outputs.region }}
+          role-session-name: tf-apply-check-${{ github.run_id }}-${{ github.run_attempt }}
+          mask-aws-account-id: true
+
+      # Step 1. Main's copy of the verifier, on the commit being deployed.
+      - name: Verify the release signatures
+        if: env.RELEASE == 'true'
+        env:
+          SIGNING_KEY_ARN: ${{ vars.RELEASE_SIGNING_KEY_ARN }}
+          AWS_REGION: ${{ steps.setup.outputs.region }}
+        run: |
+          set -euo pipefail
+          [ -n "$SIGNING_KEY_ARN" ] || { echo "::error::RELEASE_SIGNING_KEY_ARN is not set"; exit 1; }
+          grep -oE '[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com(\.cn)?' "$RELEASE_FILE" | sort -u > "$RUNNER_TEMP/registries.txt" || true
+          while IFS= read -r registry; do
+            aws ecr get-login-password --region "$AWS_REGION" \
+              | docker login --username AWS --password-stdin "$registry"
+          done < "$RUNNER_TEMP/registries.txt"
+          SIGNING_KEY="awskms:///$SIGNING_KEY_ARN" \
+            bash .github/scripts/release-tfvars.sh signed "$GITHUB_SHA" "$TF_ENV"
+
+      # The release being deployed, for the record (also for a change that is
+      # not a release: the record says what runs after it).
+      - name: Read the release
+        id: release
+        run: |
+          set -euo pipefail
+          sed -n 's/^\([a-z_]*\)[[:space:]]*=[[:space:]]*"\([^"]*\)"$/\1\t\2/p' "$RELEASE_FILE" \
+            | jq -Rn '[inputs | split("\t") | {(.[0]): .[1]}] | add // {}
+                      | {release_id: (.release_id // null), images: (del(.release_id) | with_entries(select(.key | startswith("image_"))))}' \
+            > "$RECORD/release.json"
+          cat "$RECORD/release.json"
+          echo "release_id=$(jq -r '.release_id // ""' "$RECORD/release.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Check the human-applied stacks
+        if: env.HUMAN_STACKS != ''
+        run: |
+          set -euo pipefail
+          pending=()
+          for stack in $HUMAN_STACKS; do
+            infra/terraform/scripts/stack.sh check "$TF_ENV" "$stack" "$WORK/$stack" || pending+=("$stack")
+          done
+          if ((${#pending[@]} > 0)); then
+            echo "::error::${pending[*]} of $TF_ENV have changes only a human may apply. Apply them by hand, in the apply order and together with every affected stack before them (infra/terraform/README.md), then re-run this job."
+            exit 1
+          fi
+
+      - name: Assume the apply role
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        with:
+          role-to-assume: ${{ steps.setup.outputs.apply_role_arn }}
+          aws-region: ${{ steps.setup.outputs.region }}
+          role-session-name: tf-apply-${{ github.run_id }}-${{ github.run_attempt }}
+          mask-aws-account-id: true
+          unset-current-credentials: true
+
+      # Step 2, and the stacks before it in the apply order.
+      - name: Apply up to 35-deploy-tasks
+        if: matrix.before_migrate != ''
+        env:
+          STACKS: ${{ matrix.before_migrate }}
+        run: |
+          set -euo pipefail
+          for stack in $STACKS; do
+            reviewed=${REVIEWED:-}/$stack/report.json
+            [[ " $REVIEWED_STACKS " == *" $stack "* ]] || reviewed=
+            infra/terraform/scripts/stack.sh apply "$TF_ENV" "$stack" "$WORK/$stack" ${reviewed:+"$reviewed"}
+          done
+
+      # Step 3.
+      - name: Snapshot the database
+        id: snapshot
+        if: env.RELEASE == 'true'
+        env:
+          PREVIOUS_RELEASE: ${{ steps.previous.outputs.release_id }}
+          RELEASE_ID: ${{ steps.release.outputs.release_id }}
+          RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          if [ -n "$PREVIOUS_RELEASE" ] && git cat-file -e "$PREVIOUS_RELEASE^{commit}" 2>/dev/null &&
+            git diff --quiet "$PREVIOUS_RELEASE" "$RELEASE_ID" -- packages/db/drizzle; then
+            echo "packages/db/drizzle is unchanged since release $PREVIOUS_RELEASE; no snapshot"
+            exit 0
+          fi
+          infra/terraform/scripts/snapshot-db.sh "$TF_ENV" | tee "$RUNNER_TEMP/snapshot.out"
+          sed -n 's/^Snapshot receipt: //p' "$RUNNER_TEMP/snapshot.out" > "$RECORD/snapshot.json"
+
+      # Step 4.
+      - name: Run the migrator
+        id: migrator
+        if: env.RELEASE == 'true'
+        env:
+          RELEASE_ID: ${{ steps.release.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          status=0
+          infra/terraform/scripts/run-task.sh "$TF_ENV" migrator | tee "$RUNNER_TEMP/migrator.out" || status=$?
+          sed -n 's/^Deploy task receipt: //p' "$RUNNER_TEMP/migrator.out" > "$RECORD/migrator.json"
+          exit "$status"
+
+      # Step 5.
+      - name: Apply 50-agentcore and 40-services
+        if: matrix.services != ''
+        env:
+          STACKS: ${{ matrix.services }}
+        run: |
+          set -euo pipefail
+          for stack in $STACKS; do
+            reviewed=${REVIEWED:-}/$stack/report.json
+            [[ " $REVIEWED_STACKS " == *" $stack "* ]] || reviewed=
+            infra/terraform/scripts/stack.sh apply "$TF_ENV" "$stack" "$WORK/$stack" ${reviewed:+"$reviewed"}
+          done
+
+      # Step 6.
+      - name: Run the smoke task
+        id: smoke
+        if: env.RELEASE == 'true'
+        env:
+          RELEASE_ID: ${{ steps.release.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          status=0
+          infra/terraform/scripts/run-task.sh "$TF_ENV" smoke | tee "$RUNNER_TEMP/smoke.out" || status=$?
+          sed -n 's/^Deploy task receipt: //p' "$RUNNER_TEMP/smoke.out" > "$RECORD/smoke.json"
+          exit "$status"
+
+      - name: Apply the stacks after the services
+        if: matrix.after_smoke != ''
+        env:
+          STACKS: ${{ matrix.after_smoke }}
+        run: |
+          set -euo pipefail
+          for stack in $STACKS; do
+            reviewed=${REVIEWED:-}/$stack/report.json
+            [[ " $REVIEWED_STACKS " == *" $stack "* ]] || reviewed=
+            infra/terraform/scripts/stack.sh apply "$TF_ENV" "$stack" "$WORK/$stack" ${reviewed:+"$reviewed"}
+          done
+
+      - name: Create the release bot token
+        id: bot
+        if: failure() && steps.smoke.outcome == 'failure' && vars.RELEASE_BOT_CLIENT_ID != ''
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      # Step 6, on failure: revert the merged commit on top of main, through
+      # the API like build-release.yml (no git credential on the runner).
+      # Opened, never merged: a human reviews and merges it.
+      - name: Open the revert pull request
+        if: failure() && steps.smoke.outcome == 'failure'
+        env:
+          BOT_TOKEN: ${{ steps.bot.outputs.token }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          short=${GITHUB_SHA:0:12}
+          branch="revert/$TF_ENV-$short"
+          title="revert($TF_ENV): ${GITHUB_SHA:0:7}, the smoke task failed"
+          body="$RUNNER_TEMP/revert-body.md"
+          {
+            echo "The smoke task failed after \`$GITHUB_SHA\` was deployed to \`$TF_ENV\` ([run]($RUN_URL))."
+            echo
+            echo "This reverts that commit. Merging it deploys the previous release again; the database keeps its migrations, which are expand-only."
+          } > "$body"
+
+          # The checkout holds every branch as it was when this job started.
+          git checkout -q --detach "origin/$BASE_BRANCH"
+          mainline=()
+          [ "$(git rev-list --parents -n 1 "$GITHUB_SHA" | wc -w)" -le 2 ] || mainline=(-m 1)
+          if ! git -c user.name=revert -c user.email=revert@invalid revert --no-edit "${mainline[@]}" "$GITHUB_SHA"; then
+            echo "::error::$GITHUB_SHA does not revert cleanly onto $BASE_BRANCH; revert it by hand"
+            exit 1
+          fi
+          if [ -z "$BOT_TOKEN" ]; then
+            {
+              echo "### Revert needed"
+              echo
+              echo "No release bot is configured, so no pull request was opened. Run \`git revert ${mainline[*]} $GITHUB_SHA\` on \`$BASE_BRANCH\` and open the pull request \`$title\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          export GH_TOKEN=$BOT_TOKEN
+          base=$(git rev-parse "origin/$BASE_BRANCH")
+          entries=$(git diff --name-only --no-renames -z "$base" HEAD | while IFS= read -r -d '' path; do
+            if [ -f "$path" ]; then
+              jq -n --arg path "$path" --rawfile content "$path" '{path: $path, mode: "100644", type: "blob", content: $content}'
+            else
+              jq -n --arg path "$path" '{path: $path, mode: "100644", type: "blob", sha: null}'
+            fi
+          done | jq -s .)
+          tree=$(jq -n --arg base "$(git rev-parse "$base^{tree}")" --argjson tree "$entries" '{base_tree: $base, tree: $tree}' \
+            | gh api "repos/$GH_REPO/git/trees" --input - --jq .sha)
+          commit=$(jq -n --arg message "$(git log -1 --format=%B HEAD)" --arg tree "$tree" --arg parent "$base" \
+            '{message: $message, tree: $tree, parents: [$parent]}' \
+            | gh api "repos/$GH_REPO/git/commits" --input - --jq .sha)
+          jq -n --arg ref "refs/heads/$branch" --arg sha "$commit" '{ref: $ref, sha: $sha}' \
+            | gh api "repos/$GH_REPO/git/refs" --input - > /dev/null
+          gh pr create --head "$branch" --base "$BASE_BRANCH" --title "$title" --body-file "$body"
+
+      # Step 7. Runs whatever happened before it, once the setup step passed.
+      - name: Record the deployment
+        if: always() && steps.setup.outcome == 'success'
+        env:
+          JOB_STATUS: ${{ job.status }}
+          PRODUCTION: ${{ steps.setup.outputs.production }}
+          AWS_REGION: ${{ steps.setup.outputs.region }}
+        run: |
+          set -euo pipefail
+          plans='{}'
+          for report in "$WORK"/*/report.json; do
+            [ -f "$report" ] || continue
+            plans=$(jq -c --slurpfile r "$report" '. + {($r[0].stack): {fingerprint: $r[0].fingerprint, changes: $r[0].changes, applied: $r[0].applied}}' <<<"$plans")
+          done
+          receipt() { [ -s "$RECORD/$1.json" ] && cat "$RECORD/$1.json" || echo null; }
+          state=failure
+          [ "$JOB_STATUS" != success ] || state=success
+          jq -n --arg env "$TF_ENV" --arg sha "$GITHUB_SHA" --arg run "$RUN_URL" --arg state "$state" \
+            --argjson release "$(receipt release)" --argjson plans "$plans" \
+            --argjson snapshot "$(receipt snapshot)" --argjson migrator "$(receipt migrator)" --argjson smoke "$(receipt smoke)" '{
+              environment: $env, commit: $sha, run: $run, result: $state,
+              release_id: ($release.release_id // null), images: ($release.images // {}),
+              plans: $plans,
+              snapshot_id: ($snapshot.snapshot_id // null),
+              migrator: (if $migrator then {task_arn: $migrator.task_arn, exit_code: $migrator.exit_code} else null end),
+              smoke: (if $smoke then {task_arn: $smoke.task_arn, exit_code: $smoke.exit_code} else null end)
+            }' > "$RECORD/deployment.json"
+          {
+            echo "### Deployment of \`$TF_ENV\`: $state"
+            echo
+            echo '```json'
+            jq . "$RECORD/deployment.json"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          base_url=$(aws ssm get-parameter --region "$AWS_REGION" --name "/comparative/$TF_ENV/30-platform/base_url" \
+            --query Parameter.Value --output text 2>/dev/null || true)
+          [[ "$base_url" =~ ^https:// ]] || base_url=""
+          id=$(jq -n --arg sha "$GITHUB_SHA" --arg env "$TF_ENV" --argjson production "$PRODUCTION" \
+            --slurpfile payload "$RECORD/deployment.json" '{
+              ref: $sha, environment: $env, task: "terraform-apply", auto_merge: false,
+              required_contexts: [], production_environment: $production,
+              description: "Terraform apply \($payload[0].release_id // "" | .[0:12])",
+              payload: $payload[0]
+            }' | gh api "repos/$GH_REPO/deployments" --input - --jq .id)
+          jq -n --arg state "$state" --arg log "$RUN_URL" --arg url "$base_url" \
+            '{state: $state, log_url: $log, auto_inactive: true} + (if $url != "" then {environment_url: $url} else {} end)' \
+            | gh api "repos/$GH_REPO/deployments/$id/statuses" --input - > /dev/null
+          echo "deployment $id recorded: $state"

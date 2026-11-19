@@ -75,9 +75,9 @@ echo "write:"
 release_json "$id_a" > "$tmp/release.json"
 cat > "$tmp/expected.tfvars" <<EOF
 # The release deployed to personal-stage: its id and its five images, each by
-# digest. The release workflow (.github/workflows/build-release.yml) replaces
-# this whole file; nothing else belongs in it, and a deploy changes nothing
-# else.
+# digest. The release workflow (.github/workflows/build-release.yml) or a
+# promotion (.github/workflows/promote.yml) replaces this whole file; nothing
+# else belongs in it, and a deploy changes nothing else.
 
 release_id = "$id_a"
 
@@ -258,6 +258,85 @@ printf '%s\n' "$(sign_all "$built")" > "$tmp/signed"
 check "a missing signing key is refused" 1 "SIGNING_KEY is not set" \
   env -C "$repo" -u SIGNING_KEY PATH="$tmp/bin:$PATH" SIGNED="$tmp/signed" \
   bash "$script" verify "$main" "$head"
+
+# --------------------------------------------------------------- signed ------
+
+# `signed <commit> <env>`: the file as it is in the commit being deployed,
+# whatever else that commit changed.
+signed_case() { # name expected-exit expected-text commit signed-lines
+  printf '%s\n' "$5" > "$tmp/signed"
+  check "$1" "$2" "$3" env -C "$repo" PATH="$tmp/bin:$PATH" SIGNED="$tmp/signed" \
+    SIGNING_KEY="awskms:///test-key" bash "$script" signed "$4" personal-stage
+}
+
+echo "signed:"
+
+signed_case "the release in the deployed commit is signed" 0 "release $built verified" \
+  "$head" "$(sign_all "$built")"
+signed_case "the deployed commit may change other files too" 0 "release $built verified" \
+  "$extra" "$(sign_all "$built")"
+signed_case "an unsigned digest is refused" 1 "image_agent" "$head" \
+  "$(sign_all "$built" | grep -v ' agent$')"
+signed_case "a release whose id is not in the deployed commit's history is refused" 1 \
+  "is not on the default branch" "$foreign" "$(sign_all "$off_main")"
+signed_case "a tag instead of a digest is refused" 1 "a tag is not accepted" "$tagged" \
+  "$(sign_all "$built")"
+signed_case "a file without a release is refused" 1 "release_id is not set" "$main" \
+  "$(sign_all "$built")"
+check "an environment without a release file is refused" 1 "does not exist" \
+  env -C "$repo" PATH="$tmp/bin:$PATH" SIGNED="$tmp/signed" SIGNING_KEY="awskms:///test-key" \
+  bash "$script" signed "$head" personal-prod
+check "a bad environment name is refused" 1 "is not an environment name" \
+  env -C "$repo" PATH="$tmp/bin:$PATH" SIGNED="$tmp/signed" SIGNING_KEY="awskms:///test-key" \
+  bash "$script" signed "$head" ../personal-stage
+check "signed without a key is refused" 1 "SIGNING_KEY is not set" \
+  env -C "$repo" -u SIGNING_KEY PATH="$tmp/bin:$PATH" SIGNED="$tmp/signed" \
+  bash "$script" signed "$head" personal-stage
+
+# -------------------------------------------------------------- promote ------
+
+echo "promote:"
+
+git -C "$repo" checkout -q --detach "$head"
+mkdir -p "$repo/infra/terraform/envs/personal-prod"
+echo "# no release yet" > "$repo/infra/terraform/envs/personal-prod/release.auto.tfvars"
+git -C "$repo" add -A
+git -C "$repo" commit -q -m "personal-prod"
+with_prod=$(git -C "$repo" rev-parse HEAD)
+
+release_json "$built" > "$tmp/promote.json"
+if env -C "$repo" bash "$script" promote "$with_prod" personal-stage personal-prod > "$tmp/promoted" 2> "$tmp/err" &&
+  bash "$script" write personal-prod "$tmp/promote.json" > "$tmp/expected-prod" &&
+  diff -u "$tmp/expected-prod" "$tmp/promoted" > "$tmp/diff"; then
+  ok "promotion copies the id and the five digests into the other environment's file"
+else
+  bad "promotion copies the id and the five digests into the other environment's file" \
+    "$(cat "$tmp/err" "$tmp/diff" 2>/dev/null)"
+fi
+
+# The promoted file, committed, is a release `verify` accepts.
+cp "$tmp/promoted" "$repo/infra/terraform/envs/personal-prod/release.auto.tfvars"
+git -C "$repo" commit -q -am "promote"
+promoted_head=$(git -C "$repo" rev-parse HEAD)
+printf '%s\n' "$(sign_all "$built")" > "$tmp/signed"
+check "the promotion pull request passes verify" 0 "release $built verified for infra/terraform/envs/personal-prod" \
+  env -C "$repo" PATH="$tmp/bin:$PATH" SIGNED="$tmp/signed" SIGNING_KEY="awskms:///test-key" \
+  bash "$script" verify "$with_prod" "$promoted_head"
+
+check "promoting to an environment that does not exist is refused" 1 "does not exist" \
+  env -C "$repo" bash "$script" promote "$with_prod" personal-stage personal-dev
+check "promoting from an environment with no release is refused" 1 "release_id is not set" \
+  env -C "$repo" bash "$script" promote "$with_prod" personal-prod personal-stage
+git -C "$repo" checkout -q --detach "$with_prod"
+sed -i "s|^image_web .*|image_web           = \"$app:web-$built\"|" "$repo/$file"
+git -C "$repo" commit -q -am "a tag in personal-stage"
+tagged_with_prod=$(git -C "$repo" rev-parse HEAD)
+check "promoting from a file with a tag is refused" 1 "a tag is not accepted" \
+  env -C "$repo" bash "$script" promote "$tagged_with_prod" personal-stage personal-prod
+check "promoting an environment to itself is refused" 1 "not to itself" \
+  env -C "$repo" bash "$script" promote "$with_prod" personal-stage personal-stage
+check "promote with a missing argument is a usage error" 2 "usage:" \
+  env -C "$repo" bash "$script" promote "$with_prod" personal-stage
 
 echo
 echo "$pass passed, $fail failed"

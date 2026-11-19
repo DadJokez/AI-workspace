@@ -1,0 +1,183 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.17.2",
+  "timestamp": "2026-11-19T10:00:00Z",
+  "resource_changes": [
+    {
+      "address": "module.web.aws_ecs_service.this",
+      "module_address": "module.web",
+      "mode": "managed",
+      "type": "aws_ecs_service",
+      "name": "this",
+      "change": {
+        "actions": ["update"],
+        "before": { "task_definition": "arn:aws:ecs:us-east-1:111122223333:task-definition/cmp-unit-web:6" },
+        "after": { "task_definition": "arn:aws:ecs:us-east-1:111122223333:task-definition/cmp-unit-web:7" },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "module.chat_worker.aws_ecs_service.this",
+      "module_address": "module.chat_worker",
+      "mode": "managed",
+      "type": "aws_ecs_service",
+      "name": "this",
+      "change": {
+        "actions": ["update"],
+        "before": { "desired_count": 1 },
+        "after": { "desired_count": 2 },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "module.web.module.task.aws_ecs_task_definition.this",
+      "module_address": "module.web.module.task",
+      "mode": "managed",
+      "type": "aws_ecs_task_definition",
+      "name": "this",
+      "change": {
+        "actions": ["create", "delete"],
+        "before": { "container_definitions": "[{\"image\":\"old\"}]" },
+        "after": { "container_definitions": "[{\"image\":\"new\",\"environment\":[{\"name\":\"TOKEN\",\"value\":\"hunter2-not-a-real-value\"}]}]" },
+        "after_unknown": { "arn": true, "revision": true }
+      }
+    },
+    {
+      "address": "aws_iam_role.extra",
+      "mode": "managed",
+      "type": "aws_iam_role",
+      "name": "extra",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": { "name": "cmp-unit-extra" },
+        "after_unknown": { "arn": true }
+      }
+    },
+    {
+      "address": "aws_sns_topic_subscription.alerts[\"ops-private@example.com\"]",
+      "mode": "managed",
+      "type": "aws_sns_topic_subscription",
+      "name": "alerts",
+      "index": "ops-private@example.com",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": { "endpoint": "ops-private@example.com", "protocol": "email" },
+        "after_unknown": { "arn": true }
+      }
+    },
+    {
+      "address": "aws_ssm_parameter.published[\"old/key\"]",
+      "mode": "managed",
+      "type": "aws_ssm_parameter",
+      "name": "published",
+      "index": "old/key",
+      "change": {
+        "actions": ["delete"],
+        "before": { "name": "/comparative/unit/old/key" },
+        "after": null,
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "module.data.aws_db_instance.this",
+      "module_address": "module.data",
+      "mode": "managed",
+      "type": "aws_db_instance",
+      "name": "this",
+      "change": {
+        "actions": ["delete", "create"],
+        "before": { "identifier": "cmp-unit-db" },
+        "after": { "identifier": "cmp-unit-db" },
+        "after_unknown": { "endpoint": true }
+      }
+    },
+    {
+      "address": "module.data.aws_s3_bucket.this[\"artifacts\"]",
+      "module_address": "module.data",
+      "mode": "managed",
+      "type": "aws_s3_bucket",
+      "name": "this",
+      "index": "artifacts",
+      "change": {
+        "actions": ["delete"],
+        "before": { "bucket": "cmp-unit-artifacts" },
+        "after": null,
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_ecr_repository.this[\"app\"]",
+      "mode": "managed",
+      "type": "aws_ecr_repository",
+      "name": "this",
+      "index": "app",
+      "change": {
+        "actions": ["create", "delete"],
+        "before": { "name": "cmp-unit-app" },
+        "after": { "name": "cmp-unit-app" },
+        "after_unknown": { "arn": true }
+      }
+    },
+    {
+      "address": "aws_kms_key.symmetric[\"data\"]",
+      "mode": "managed",
+      "type": "aws_kms_key",
+      "name": "symmetric",
+      "index": "data",
+      "change": {
+        "actions": ["no-op"],
+        "before": { "description": "data" },
+        "after": { "description": "data" },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "module.data.aws_secretsmanager_secret.this[\"app\"]",
+      "module_address": "module.data",
+      "mode": "managed",
+      "type": "aws_secretsmanager_secret",
+      "name": "this",
+      "index": "app",
+      "change": {
+        "actions": ["update"],
+        "before": { "description": "old" },
+        "after": { "description": "new" },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_cloudwatch_log_group.legacy",
+      "mode": "managed",
+      "type": "aws_cloudwatch_log_group",
+      "name": "legacy",
+      "change": {
+        "actions": ["forget"],
+        "before": { "name": "/comparative/unit/legacy" },
+        "after": null,
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "data.aws_ssm_parameter.base_url",
+      "mode": "data",
+      "type": "aws_ssm_parameter",
+      "name": "base_url",
+      "change": {
+        "actions": ["read"],
+        "before": null,
+        "after": { "insecure_value": "https://app.example.com" },
+        "after_unknown": {}
+      }
+    }
+  ],
+  "output_changes": {
+    "service_names": {
+      "actions": ["no-op"],
+      "before": ["web"],
+      "after": ["web"],
+      "after_unknown": false
+    }
+  }
+}
