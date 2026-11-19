@@ -69,7 +69,10 @@ test("pins a chat in the flat newest-first history and persists after reload", a
     "Oldest unpinned",
   ]);
   await expect(sidebar.getByText("Previous 7 days")).toHaveCount(0);
-  expect(threadRequests.some((url) => url.includes("scope=mine"))).toBe(true);
+  // The list is scoped to the caller server-side for every role; the client
+  // sends no scope parameter.
+  expect(threadRequests.length).toBeGreaterThan(0);
+  expect(threadRequests.some((url) => url.includes("scope="))).toBe(false);
   if (!isMobile) {
     await expect
       .poll(() =>

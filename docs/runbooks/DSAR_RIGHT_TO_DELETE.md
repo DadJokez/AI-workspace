@@ -76,10 +76,12 @@ hand:
    attachment.
 5. Deliver through an approved channel; record what was sent and when.
 
-Every cross-owner read an admin performs while assembling this writes an
-`admin_data_access` receipt (`docs/AUDIT_SURFACES.md`) — that is correct and
-expected. Direct SQL does not, which is why the operator must record the
-actions manually.
+The app gives an admin no way to read another user's threads (WP-18: the
+per-thread export and every thread route serve the owner only). A run opened in
+the Run Inspector or on the admin run page needs a reason and writes an
+`admin.user_data_access` receipt (`docs/AUDIT_SURFACES.md`) — give the DSAR
+ticket as the reason. Direct SQL writes nothing, which is why the operator must
+record the actions manually.
 
 ## Deletion request
 

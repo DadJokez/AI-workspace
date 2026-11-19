@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { AdminUserRow } from "@/app/api/admin/users/route";
+import { DestructiveConfirmDialog } from "@/components/DestructiveConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
+import { ADMIN_REASON_MAX_CHARS } from "@/lib/admin-reason";
 import { fetchJson } from "@/lib/client-api";
 import { formatDate } from "@/lib/format-date";
 
@@ -16,6 +18,42 @@ interface Props {
 }
 
 type Role = "admin" | "user";
+type Status = AdminUserRow["status"];
+type StatusAction = "suspend" | "deprovision" | "reactivate";
+
+/**
+ * What each action does, as the confirmation states it. Mirrors
+ * `lib/user-lifecycle.ts`; keep the two in step.
+ */
+const STATUS_ACTIONS: Record<
+  StatusAction,
+  { label: string; from: Status[]; effects: string }
+> = {
+  suspend: {
+    label: "Suspend",
+    from: ["active"],
+    effects:
+      "Signs them out everywhere and blocks sign-in, revokes their connected accounts, turns off their schedules and event triggers, and cancels their queued and running runs. Their threads, files and settings are kept.",
+  },
+  deprovision: {
+    label: "Deprovision",
+    from: ["active", "suspended"],
+    effects:
+      "For someone who has left. Signs them out everywhere and blocks sign-in, revokes their connected accounts, turns off their schedules and event triggers, and cancels their queued and running runs. Nothing is deleted.",
+  },
+  reactivate: {
+    label: "Reactivate",
+    from: ["suspended", "deprovisioned"],
+    effects:
+      "Lets them sign in again. Their schedules, event triggers and connected accounts stay off until they turn them back on.",
+  },
+};
+
+const STATUS_BADGE: Record<Status, string> = {
+  active: "bg-subtle text-muted",
+  suspended: "bg-danger-bg text-danger",
+  deprovisioned: "bg-subtle text-muted line-through",
+};
 
 function relativeTime(iso: string): string {
   const then = new Date(iso).getTime();
@@ -50,6 +88,53 @@ export function UsersTable({
   const [rows, setRows] = useState(initialUsers);
   const [busyId, setBusyId] = useState<string | undefined>();
   const [errorId, setErrorId] = useState<string | undefined>();
+  const [pendingStatus, setPendingStatus] = useState<{
+    user: AdminUserRow;
+    action: StatusAction;
+  } | null>(null);
+  const [reason, setReason] = useState("");
+  const [statusBusy, setStatusBusy] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const reasonId = useId();
+
+  function openStatusDialog(user: AdminUserRow, action: StatusAction) {
+    setPendingStatus({ user, action });
+    setReason("");
+    setStatusError(null);
+  }
+
+  async function confirmStatusChange() {
+    if (!pendingStatus) return;
+    const { user, action } = pendingStatus;
+    setStatusBusy(true);
+    setStatusError(null);
+    try {
+      const data = await fetchJson<{
+        user: Pick<
+          AdminUserRow,
+          "id" | "status" | "statusChangedAt" | "statusReason"
+        >;
+      }>(
+        `/api/admin/users/${user.id}/status`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action, reason }),
+        },
+        "Could not change this account.",
+      );
+      setRows((rs) =>
+        rs.map((r) => (r.id === data.user.id ? { ...r, ...data.user } : r)),
+      );
+      setPendingStatus(null);
+    } catch (err) {
+      setStatusError(
+        err instanceof Error ? err.message : "Could not change this account.",
+      );
+    } finally {
+      setStatusBusy(false);
+    }
+  }
 
   async function changeRole(id: string, nextRole: Role) {
     const prev = rows;
@@ -95,6 +180,9 @@ export function UsersTable({
             </th>
             <th className="border-b border-hairline px-4 py-2 font-medium">
               Role
+            </th>
+            <th className="border-b border-hairline px-4 py-2 font-medium">
+              Status
             </th>
             <th className="border-b border-hairline px-4 py-2 font-medium">
               Joined
@@ -156,6 +244,19 @@ export function UsersTable({
                     {u.role}
                   </span>
                 </td>
+                <td className="border-b border-hairline px-4 py-3 align-middle">
+                  <span
+                    data-testid={`user-status-${u.id}`}
+                    className={`inline-flex items-center rounded px-2 py-0.5 text-2xs uppercase tracking-wider ${STATUS_BADGE[u.status]}`}
+                    title={
+                      u.statusReason
+                        ? `${u.statusChangedAt ? `${formatDate(u.statusChangedAt)}: ` : ""}${u.statusReason}`
+                        : undefined
+                    }
+                  >
+                    {u.status}
+                  </span>
+                </td>
                 <td className="border-b border-hairline px-4 py-3 align-middle text-muted">
                   {formatDate(u.createdAt)}
                 </td>
@@ -188,6 +289,23 @@ export function UsersTable({
                       <option value="user">user</option>
                       <option value="admin">admin</option>
                     </select>
+                    {isSelf
+                      ? null
+                      : (Object.keys(STATUS_ACTIONS) as StatusAction[])
+                          .filter((action) =>
+                            STATUS_ACTIONS[action].from.includes(u.status),
+                          )
+                          .map((action) => (
+                            <button
+                              key={action}
+                              type="button"
+                              onClick={() => openStatusDialog(u, action)}
+                              aria-label={`${STATUS_ACTIONS[action].label} ${u.displayName}`}
+                              className="rounded-md border border-hairline px-2 py-1 text-xs text-ink hover:bg-subtle"
+                            >
+                              {STATUS_ACTIONS[action].label}
+                            </button>
+                          ))}
                   </div>
                 </td>
               </tr>
@@ -195,6 +313,40 @@ export function UsersTable({
           })}
         </tbody>
       </table>
+      <DestructiveConfirmDialog
+        open={pendingStatus !== null}
+        title={
+          pendingStatus
+            ? `${STATUS_ACTIONS[pendingStatus.action].label} ${pendingStatus.user.displayName}?`
+            : ""
+        }
+        description={
+          pendingStatus ? STATUS_ACTIONS[pendingStatus.action].effects : ""
+        }
+        actionLabel={
+          pendingStatus ? STATUS_ACTIONS[pendingStatus.action].label : ""
+        }
+        errorMessage={statusError}
+        busy={statusBusy}
+        confirmDisabled={reason.trim().length === 0}
+        onCancel={() => setPendingStatus(null)}
+        onConfirm={confirmStatusChange}
+      >
+        <label
+          htmlFor={reasonId}
+          className="mt-3 block text-xs font-medium text-ink"
+        >
+          Reason (recorded in the audit log)
+        </label>
+        <textarea
+          id={reasonId}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          maxLength={ADMIN_REASON_MAX_CHARS}
+          rows={3}
+          className="mt-1 w-full rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink"
+        />
+      </DestructiveConfirmDialog>
     </div>
   );
 }

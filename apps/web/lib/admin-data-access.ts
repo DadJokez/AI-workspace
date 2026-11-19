@@ -2,6 +2,23 @@ import type { SessionUser } from "@ai-workspace/auth";
 import { auditLog, type Database } from "@ai-workspace/db";
 import { and, eq, gte, sql } from "drizzle-orm";
 
+/**
+ * Two ledger actions record an admin looking at another user's records:
+ *
+ *   - `admin.user_data_access` (`recordAdminUserDataAccess`): an explicit
+ *     admin route returning another user's content (a run's prompt, answer
+ *     and trace). The route requires a reason, and the row is written, fail
+ *     closed, before anything is returned. Personal surfaces never reach
+ *     another user's data at all (`lib/auth/scope.ts`).
+ *   - `admin_data_access` (`auditAdminDataAccess*`): admin console listings
+ *     and attachments whose rows carry another user's id (run and feedback
+ *     lists, a feedback screenshot, app governance). The justification is
+ *     optional and repeats are collapsed.
+ *
+ * Both rows share the `admin-data-access.v1` metadata shape, so the audit page
+ * reads them the same way; a reason is stored as `justification`.
+ */
+export const ADMIN_USER_DATA_ACCESS_ACTION = "admin.user_data_access";
 export const ADMIN_DATA_ACCESS_ACTION = "admin_data_access";
 export const ADMIN_DATA_ACCESS_SCHEMA = "admin-data-access.v1";
 export const ADMIN_DATA_ACCESS_JUSTIFICATION_HEADER =
@@ -172,6 +189,77 @@ export async function auditAdminDataAccessBatch({
     deduplicated: normalized.size - pending.length,
     skipped,
   };
+}
+
+export interface AdminUserDataAccess {
+  targetUserId: string;
+  resourceType: string;
+  resourceId: string;
+  surface: string;
+  /** Already validated with `parseAdminReason`. */
+  reason: string;
+  chatThreadId?: string | null;
+  runId?: string | null;
+}
+
+/**
+ * Record an admin's reason-bearing read of another user's data. Call it
+ * before returning the data, and let it throw: when the ledger cannot take
+ * the row, the read does not happen.
+ *
+ * The same admin reading the same resource on the same surface for the same
+ * reason within five minutes is recorded once, because the Run Inspector
+ * polls a live run every 1.5 seconds. A different reason is a new row.
+ */
+export async function recordAdminUserDataAccess({
+  db,
+  actor,
+  access,
+  now = new Date(),
+}: {
+  db: Database;
+  actor: Pick<SessionUser, "id">;
+  access: AdminUserDataAccess;
+  now?: Date;
+}): Promise<"recorded" | "deduplicated"> {
+  const metadata: AdminDataAccessMetadata = {
+    schema: ADMIN_DATA_ACCESS_SCHEMA,
+    targetUserId: access.targetUserId,
+    resourceType: access.resourceType,
+    resourceId: access.resourceId,
+    surface: access.surface,
+    justification: access.reason,
+  };
+  const recent = await db
+    .select({ id: auditLog.id })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.actorUserId, actor.id),
+        eq(auditLog.actionType, ADMIN_USER_DATA_ACCESS_ACTION),
+        gte(
+          auditLog.createdAt,
+          new Date(now.getTime() - ACCESS_DEDUPE_WINDOW_MS),
+        ),
+        sql`${auditLog.metadata} @> ${JSON.stringify(metadata)}::jsonb`,
+      ),
+    )
+    .limit(1);
+  if (recent.length > 0) return "deduplicated";
+
+  await db.insert(auditLog).values({
+    actorUserId: actor.id,
+    actionType: ADMIN_USER_DATA_ACCESS_ACTION,
+    status: "succeeded",
+    provider: "ai-hub",
+    chatThreadId: access.chatThreadId ?? null,
+    runId: access.runId ?? null,
+    metadata,
+    startedAt: now,
+    completedAt: now,
+    createdAt: now,
+  });
+  return "recorded";
 }
 
 export function adminDataAccessJustification(

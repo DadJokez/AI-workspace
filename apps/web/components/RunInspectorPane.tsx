@@ -2,7 +2,8 @@
 
 import { Metric, StatusBadge, StatusDot } from "@/app/admin/ui";
 import { SlideOverPane } from "@/components/SlideOverPane";
-import { fetchJson } from "@/lib/client-api";
+import { ADMIN_REASON_MAX_CHARS, parseAdminReason } from "@/lib/admin-reason";
+import { ClientApiError, fetchJson } from "@/lib/client-api";
 import {
   type LiveReasoningBlock,
   type RunInspectorEvent,
@@ -10,7 +11,7 @@ import {
   isRecord,
   parseRunInspectorTrace,
 } from "@/lib/run-inspector";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 
 interface Props {
   runId: string;
@@ -54,16 +55,22 @@ export function RunInspectorPane({
   const [tab, setTab] = useState<InspectorTab>("overview");
   const [timelineFilter, setTimelineFilter] =
     useState<TimelineFilter>("all");
+  // Another user's run opens only with a reason, which the server records in
+  // the audit log before it returns the trace. Kept per run.
+  const [access, setAccess] = useState<{ runId: string; reason: string }>();
+  const [reasonRequired, setReasonRequired] = useState(false);
+  const reason = access?.runId === runId ? access.reason : undefined;
 
   useEffect(() => {
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const controller = new AbortController();
+    const query = reason ? `?reason=${encodeURIComponent(reason)}` : "";
 
     async function load() {
       try {
         const body = await fetchJson<{ trace?: unknown }>(
-          `/api/admin/runs/${encodeURIComponent(runId)}/trace`,
+          `/api/admin/runs/${encodeURIComponent(runId)}/trace${query}`,
           {
             cache: "no-store",
             signal: controller.signal,
@@ -81,6 +88,14 @@ export function RunInspectorPane({
         }
       } catch (nextError) {
         if (!active || controller.signal.aborted) return;
+        if (
+          nextError instanceof ClientApiError &&
+          nextError.code === "access_reason_required"
+        ) {
+          setReasonRequired(true);
+          setLoading(false);
+          return;
+        }
         setError(
           nextError instanceof Error ? nextError.message : String(nextError),
         );
@@ -91,13 +106,14 @@ export function RunInspectorPane({
     setTrace(null);
     setLoading(true);
     setError(undefined);
+    setReasonRequired(false);
     void load();
     return () => {
       active = false;
       controller.abort();
       if (timer) clearTimeout(timer);
     };
-  }, [runId]);
+  }, [runId, reason]);
 
   const filteredEvents = useMemo(
     () => filterTimeline(trace?.events ?? [], timelineFilter),
@@ -162,7 +178,11 @@ export function RunInspectorPane({
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        {loading && !trace ? (
+        {reasonRequired && !trace ? (
+          <AccessReasonForm
+            onSubmit={(nextReason) => setAccess({ runId, reason: nextReason })}
+          />
+        ) : loading && !trace ? (
           <PaneState label="Loading run trace..." />
         ) : error && !trace ? (
           <PaneState label={`Trace unavailable: ${error}`} tone="error" />
@@ -614,6 +634,53 @@ function ContextValue({ label, value }: { label: string; value: unknown }) {
 
 function SectionTitle({ title }: { title: string }) {
   return <h3 className="text-xs font-semibold text-ink">{title}</h3>;
+}
+
+function AccessReasonForm({
+  onSubmit,
+}: {
+  onSubmit: (reason: string) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const inputId = useId();
+  const valid = parseAdminReason(draft) !== null;
+  return (
+    <form
+      className="px-4 py-6"
+      data-testid="run-inspector-reason"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const reason = parseAdminReason(draft);
+        if (reason) onSubmit(reason);
+      }}
+    >
+      <p className="text-xs text-muted">
+        This run belongs to another user. Opening it is recorded in the audit
+        log with your reason.
+      </p>
+      <label
+        htmlFor={inputId}
+        className="mt-3 block text-xs font-medium text-ink"
+      >
+        Reason
+      </label>
+      <textarea
+        id={inputId}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        maxLength={ADMIN_REASON_MAX_CHARS}
+        rows={3}
+        className="mt-1 w-full rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink"
+      />
+      <button
+        type="submit"
+        disabled={!valid}
+        className="mt-3 rounded-md border border-hairline px-3 py-1.5 text-xs font-medium text-ink hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        Open run
+      </button>
+    </form>
+  );
 }
 
 function PaneState({

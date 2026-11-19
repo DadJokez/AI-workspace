@@ -8,6 +8,7 @@ import {
   skills,
 } from "@ai-workspace/db";
 import { and, asc, eq, isNull, lte, lt, or } from "drizzle-orm";
+import { ownerIsActive } from "@/lib/active-owner";
 import { computeNextRunAt } from "@/lib/schedules/next-run";
 import { hasInFlightScheduleRun } from "@/lib/schedules/run-history";
 import {
@@ -51,6 +52,7 @@ export async function processDueSchedules({
         eq(schedules.enabled, true),
         lte(schedules.nextRunAt, now),
         or(isNull(schedules.claimedAt), lt(schedules.claimedAt, staleCutoff)),
+        ownerIsActive(schedules.userId),
       ),
     )
     .orderBy(asc(schedules.nextRunAt))
@@ -68,6 +70,10 @@ export async function processDueSchedules({
           eq(schedules.enabled, true),
           lte(schedules.nextRunAt, now),
           or(isNull(schedules.claimedAt), lt(schedules.claimedAt, staleCutoff)),
+          // WP-18: a suspended or deprovisioned owner's schedule never
+          // enqueues. The suspension also turns it off; this covers a tick
+          // that read the row just before that committed.
+          ownerIsActive(schedules.userId),
         ),
       )
       .returning();

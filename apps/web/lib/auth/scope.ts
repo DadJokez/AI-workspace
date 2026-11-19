@@ -1,21 +1,21 @@
-import type { SessionUser, UserRole } from "@ai-workspace/auth";
+import type { SessionUser } from "@ai-workspace/auth";
 import type { AnyColumn } from "drizzle-orm";
 import { eq, type SQL } from "drizzle-orm";
 
 /**
- * Predicate builder for per-user data scoping on read queries.
+ * Predicate for per-user data scoping on read queries: `column = user.id`,
+ * for every role. An admin's personal surfaces (thread list, thread detail,
+ * export, run status, feedback attachments) show the admin's own rows, the
+ * same as anyone else's.
  *
- * - role = 'user'  → returns `column = sessionUser.id` (sees only own rows)
- * - role = 'admin' → returns undefined (no filter; sees everything)
- *
- * Use the result with drizzle's `and(...)`, which transparently drops
- * `undefined` clauses, so the same `where(and(scope, ...))` shape works for
- * both roles. Read-side only — write/destructive routes keep their explicit
- * ownership checks regardless of role.
+ * Reading another user's data is an admin feature in its own right and goes
+ * through an explicit admin route that calls `requireAdmin`, takes a reason,
+ * and writes an `admin.user_data_access` audit row before it returns anything
+ * (`lib/admin-data-access.ts`, e.g. `/api/admin/runs/[id]/trace`).
  */
 export function userScope(
-  user: SessionUser | { role: UserRole; id: string },
+  user: Pick<SessionUser, "id">,
   column: AnyColumn,
-): SQL | undefined {
-  return user.role === "admin" ? undefined : eq(column, user.id);
+): SQL {
+  return eq(column, user.id);
 }

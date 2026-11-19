@@ -39,9 +39,10 @@ interface ProxyOpts {
   existingUserCount: number;
   /**
    * Result queue for `users` selects that end in `.limit(1)`, in call order.
-   * GitHub flow: [bySubject, byEmail?]; email flow: [byEmail].
+   * GitHub flow: [bySubject, byEmail?]; email flow: [byEmail]. `true` is an
+   * active user; a status string is a user in that status (WP-18).
    */
-  usersSelects: boolean[];
+  usersSelects: Array<boolean | "suspended" | "deprovisioned">;
   pendingInviteForEmail: boolean;
 }
 
@@ -77,7 +78,14 @@ function makeProxy(opts: ProxyOpts): unknown {
             if (currentTarget === "users") {
               const found = usersQueue.shift() ?? false;
               return Promise.resolve(
-                found ? [{ id: "existing-user-uuid" }] : [],
+                found
+                  ? [
+                      {
+                        id: "existing-user-uuid",
+                        status: found === true ? "active" : found,
+                      },
+                    ]
+                  : [],
               );
             }
             if (currentTarget === "invitations") {
@@ -228,6 +236,29 @@ describe("nextauth — signIn gate (github)", () => {
     expect(ok).toBe(true);
   });
 
+  it.each(["suspended", "deprovisioned"] as const)(
+    "refuses an existing %s user and says why (WP-18)",
+    async (status) => {
+      vi.stubEnv("NEXTAUTH_URL", "https://comparative.example");
+      const signIn = await loadSignIn({
+        existingUserCount: 5,
+        usersSelects: [status],
+        pendingInviteForEmail: true,
+      });
+      const result = await signIn({
+        user: { id: "12345", email: "test@example.com", name: "Test User" },
+        // biome-ignore lint/suspicious/noExplicitAny: NextAuth's Account type is wider than we use
+        account: { provider: "github", providerAccountId: "12345", type: "oauth" } as any,
+        // biome-ignore lint/suspicious/noExplicitAny: profile shape is provider-specific
+        profile: { email: "test@example.com" } as any,
+        credentials: undefined,
+      });
+      expect(result).toBe(
+        "https://comparative.example/login?error=AccessDenied&reason=user_inactive",
+      );
+    },
+  );
+
   it("refuses a GitHub identity whose address belongs to an existing user (no linking by email), even with an invitation", async () => {
     vi.stubEnv("NEXTAUTH_URL", "https://comparative.example");
     const signIn = await loadSignIn({
@@ -362,6 +393,27 @@ describe("nextauth — signIn gate (email magic link)", () => {
     );
     expect(ok).toBe(true);
   });
+
+  it.each([
+    ["request", "suspended"],
+    ["callback", "suspended"],
+    ["request", "deprovisioned"],
+  ] as const)(
+    "%s phase: refuses a %s user with the same neutral answer, invitation or not (WP-18)",
+    async (phase, status) => {
+      const ok = await callSignInEmail(
+        {
+          existingUserCount: 5,
+          usersSelects: [status],
+          pendingInviteForEmail: true,
+        },
+        { phase },
+      );
+      // A bare `false`, never a reason redirect: magic-link refusals all
+      // look alike.
+      expect(ok).toBe(false);
+    },
+  );
 
   it("callback phase: denies when the invite was revoked between request and click", async () => {
     const ok = await callSignInEmail(

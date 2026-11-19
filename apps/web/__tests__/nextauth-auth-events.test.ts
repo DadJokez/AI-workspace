@@ -69,7 +69,7 @@ function makeDb(opts: DbOpts, inserted: Record<string, unknown>[]): unknown {
           return () => {
             if (currentTarget === "users") {
               return Promise.resolve(
-                usersQueue.shift() ? [{ id: ACTOR_ID }] : [],
+                usersQueue.shift() ? [{ id: ACTOR_ID, status: "active" }] : [],
               );
             }
             if (currentTarget === "invitations") {

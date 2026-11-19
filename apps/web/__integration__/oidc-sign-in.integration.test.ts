@@ -40,7 +40,12 @@ interface SignInResult {
   /** Where next-auth sent the browser after the callback. */
   redirect: string;
   /** The decoded session, or null when no session cookie was issued. */
-  session: { userId?: string; role?: string; email?: string | null } | null;
+  session: {
+    userId?: string;
+    role?: string;
+    email?: string | null;
+    sv?: number;
+  } | null;
 }
 
 interface App {
@@ -272,6 +277,44 @@ suite("OIDC sign-in (mock issuer, real Postgres)", () => {
           }),
         }),
       ]);
+    });
+
+    it("stamps the session version at sign-in and refuses a suspended user without touching the row (WP-18)", async () => {
+      const first = await app.signIn({
+        claims: claims("sid", { groups: [USERS_GROUP, ADMINS_GROUP] }),
+      });
+      const row = await oidcUser("sid");
+      expect(first.session).toMatchObject({ userId: row!.id, sv: 0 });
+
+      await db
+        .update(users)
+        .set({ status: "suspended", sessionVersion: 1 })
+        .where(eq(users.id, row!.id));
+      // The claim would now demote them; a refused sign-in syncs nothing.
+      const refused = await app.signIn({
+        claims: claims("sid", { groups: [USERS_GROUP] }),
+      });
+      expect(refused.redirect).toBe(
+        `${APP_URL}/login?error=AccessDenied&reason=user_inactive`,
+      );
+      expect(refused.session).toBeNull();
+      expect(await oidcUser("sid")).toMatchObject({
+        status: "suspended",
+        role: "admin",
+      });
+      expect(await groupsOf(row!.id)).toEqual([ADMINS_GROUP, USERS_GROUP]);
+      expect(
+        (await auditRows({ email: address("sid") })).map((entry) => entry.error),
+      ).toContain("user_inactive");
+
+      await db
+        .update(users)
+        .set({ status: "active" })
+        .where(eq(users.id, row!.id));
+      const again = await app.signIn({
+        claims: claims("sid", { groups: [USERS_GROUP] }),
+      });
+      expect(again.session).toMatchObject({ userId: row!.id, sv: 1 });
     });
 
     it("asks the issuer for the configured scope with PKCE, state and a nonce", async () => {
@@ -613,6 +656,26 @@ suite("OIDC sign-in (mock issuer, real Postgres)", () => {
       expect((await usersWithAddress("nora")).map((u) => u.pingSubject)).toEqual([
         `email:${address("nora")}`,
         `pingone:${SUB}nora`,
+      ]);
+    });
+
+    it("neither adopts a suspended magic-link user nor gives them a fresh account (WP-18)", async () => {
+      const pilot = await seedUser("sue", `email:${address("sue")}`);
+      await db
+        .update(users)
+        .set({ status: "suspended" })
+        .where(eq(users.id, pilot.id));
+
+      const result = await app.signIn({
+        claims: claims("sue", { email_verified: true }),
+      });
+
+      expect(result.redirect).toBe(
+        `${APP_URL}/login?error=AccessDenied&reason=user_inactive`,
+      );
+      expect(result.session).toBeNull();
+      expect((await usersWithAddress("sue")).map((u) => u.pingSubject)).toEqual([
+        `email:${address("sue")}`,
       ]);
     });
 

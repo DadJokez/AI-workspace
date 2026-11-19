@@ -1,10 +1,6 @@
 import { chatThreads, getDb } from "@ai-workspace/db";
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import {
-  adminDataAccessJustification,
-  auditAdminDataAccess,
-} from "@/lib/admin-data-access";
 import { requireSession } from "@/lib/auth/requireSession";
 import { userScope } from "@/lib/auth/scope";
 import {
@@ -18,7 +14,8 @@ export const dynamic = "force-dynamic";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-export async function GET(req: Request, { params }: RouteContext) {
+/** Markdown export of a thread the caller owns; owner only for every role. */
+export async function GET(_req: Request, { params }: RouteContext) {
   const session = await requireSession();
   if ("error" in session) return session.error;
   const sessionUser = session.user;
@@ -33,7 +30,6 @@ export async function GET(req: Request, { params }: RouteContext) {
     .select({
       id: chatThreads.id,
       title: chatThreads.title,
-      userId: chatThreads.userId,
     })
     .from(chatThreads)
     .where(
@@ -48,19 +44,6 @@ export async function GET(req: Request, { params }: RouteContext) {
   if (!thread) {
     return NextResponse.json({ error: "thread_not_found" }, { status: 404 });
   }
-
-  await auditAdminDataAccess({
-    db,
-    actor: sessionUser,
-    access: {
-      targetUserId: thread.userId,
-      resourceType: "chat_thread",
-      resourceId: thread.id,
-      surface: "thread_export",
-      justification: adminDataAccessJustification(req),
-      chatThreadId: thread.id,
-    },
-  });
 
   const [messages, lineage] = await Promise.all([
     loadThreadMessagesWithRunActivity({

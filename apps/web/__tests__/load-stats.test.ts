@@ -28,6 +28,7 @@ describe("load-test session minting", () => {
       role: "user",
       email: user.email,
       name: user.displayName,
+      sv: 0,
     });
     expect(Number(payload!.exp) - Number(payload!.iat)).toBe(60);
     await expect(decode({ token, secret: "a-different-secret-of-similar-length" })).rejects.toThrow();

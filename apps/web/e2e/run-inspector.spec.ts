@@ -223,6 +223,69 @@ test.describe("admin Run Inspector", () => {
     await expect(inspector).toHaveCount(0);
   });
 
+  test("asks for a reason before opening another user's run (WP-18)", async ({
+    page,
+  }) => {
+    await installMockComparativeApi(page, {
+      onChat: async (_body, route) => {
+        await fulfillSse(route, [
+          {
+            type: "meta",
+            threadId: "thread-other-user",
+            runId,
+            modelId: "sonnet-4-6",
+          },
+          { type: "text-delta", delta: "Answered on someone else's behalf." },
+          {
+            type: "persisted",
+            assistantMessageId: "assistant-other-user",
+            artifacts: [],
+            recommendations: [],
+          },
+          { type: "done", stopReason: "completed" },
+        ]);
+      },
+    });
+    // The trace route refuses another user's run until a reason arrives.
+    const reasons: Array<string | null> = [];
+    await page.route(`**/api/admin/runs/${runId}/trace**`, async (route) => {
+      const reason = new URL(route.request().url()).searchParams.get("reason");
+      reasons.push(reason);
+      await route.fulfill(
+        reason
+          ? { json: { trace: runTrace() } }
+          : {
+              status: 400,
+              json: {
+                error: "access_reason_required",
+                message: "This run belongs to another user.",
+              },
+            },
+      );
+    });
+    await gotoE2EChat(page);
+
+    await page.getByPlaceholder(/ask anything/i).fill("Inspect the repository");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("Answered on someone else's behalf.")).toBeVisible();
+    await page.getByRole("button", { name: "Inspect run" }).click();
+
+    const inspector = page.getByRole("complementary", { name: "Run Inspector" });
+    const form = inspector.getByTestId("run-inspector-reason");
+    await expect(form).toBeVisible();
+    await expect(inspector.getByText("sonnet-4-6")).toHaveCount(0);
+    const open = form.getByRole("button", { name: "Open run" });
+    await expect(open).toBeDisabled();
+
+    await form.getByLabel("Reason").fill("  Support ticket 4411  ");
+    await open.click();
+
+    await expect(inspector.getByText("sonnet-4-6").first()).toBeVisible();
+    await expect(form).toHaveCount(0);
+    expect(reasons[0]).toBeNull();
+    expect(reasons.at(-1)).toBe("Support ticket 4411");
+  });
+
   test("does not expose the inspector affordance to a non-admin", async ({
     page,
   }) => {

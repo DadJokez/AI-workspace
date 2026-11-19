@@ -151,8 +151,8 @@ is set ([chat-run-worker.ts:1096](../../apps/web/lib/chat-run-worker.ts)).
   [packages/auth/src/types.ts:34](../../packages/auth/src/types.ts).
 - **Sign-in gate:** first-ever user (empty table) or existing user or email with pending invitation;
   random GitHub users rejected ([nextauth.ts:62](../../apps/web/lib/auth/nextauth.ts)). First user → `admin`.
-- **Authorization scoping:** `userScope(user, column)` returns `eq(column, user.id)` for non-admins,
-  `undefined` (no filter) for admins ([apps/web/lib/auth/scope.ts:16](../../apps/web/lib/auth/scope.ts)).
+- **Authorization scoping:** `userScope(user, column)` returns `eq(column, user.id)` for every role;
+  admins lost their no-filter bypass in WP-18 ([apps/web/lib/auth/scope.ts](../../apps/web/lib/auth/scope.ts)).
   This is the cross-user data-isolation primitive (read side). The `users.id` UUID is the universal
   scoping key for every per-user row.
 - **Per-user connector credentials (independent of sign-in IdP):** GitHub/Notion (Google scaffolded)

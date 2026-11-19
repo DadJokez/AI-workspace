@@ -1,8 +1,14 @@
 import type { NextAuthOptions } from "next-auth";
+import type { JWT } from "next-auth/jwt";
 import type { EmailConfig } from "next-auth/providers/email";
 import GitHubProvider from "next-auth/providers/github";
 import type { OAuthConfig } from "next-auth/providers/oauth";
-import { getDb, users, type Database } from "@ai-workspace/db";
+import {
+  getDb,
+  users,
+  type Database,
+  type User as DbUser,
+} from "@ai-workspace/db";
 import { and, eq, like, not, sql } from "drizzle-orm";
 import {
   MAGIC_LINK_MAX_AGE_SECONDS,
@@ -78,6 +84,11 @@ export {
  *     MCP-token flow at /api/oauth/github/* — different scopes, purposes.
  *   - Sessions carry an explicit idle expiry (SESSION_MAX_AGE_SECONDS, 24h
  *     unless the deployment sets it) rather than next-auth's 30-day default.
+ *   - Sessions are revocable: the JWT carries `sv`, the user's
+ *     `session_version` at sign-in, and `getSessionUser` honours it only
+ *     while it equals the row's value and the user is `active`. Suspending or
+ *     deprovisioning a user bumps the version (`lib/user-lifecycle.ts`), and
+ *     the sign-in gate refuses a user who is not active, for every provider.
  *   - Sign-in, sign-in-denied and sign-out are appended to the audit ledger
  *     (`lib/auth/auth-audit.ts`); no token material is ever recorded.
  */
@@ -269,14 +280,14 @@ function oidcProvider(oidc: OidcConfig): OAuthConfig<OidcClaims> {
   };
 }
 
-async function userExistsWithEmail(
+async function findUserWithEmail(
   db: Database,
   address: string,
   options: { includeOidcUsers: boolean },
-): Promise<boolean> {
+): Promise<Pick<DbUser, "status"> | null> {
   const sameAddress = sql`lower(${users.email}) = ${address}`;
   const existing = await db
-    .select({ id: users.id })
+    .select({ status: users.status })
     .from(users)
     .where(
       options.includeOidcUsers
@@ -287,7 +298,7 @@ async function userExistsWithEmail(
           ),
     )
     .limit(1);
-  return existing[0] !== undefined;
+  return existing[0] ?? null;
 }
 
 /**
@@ -420,9 +431,16 @@ async function evaluateSignIn({
     // An OIDC user is not "an existing user" here: a magic link must never
     // sign someone in as an identity the identity provider gates. Such an
     // address needs an invitation like any other and gets its own user.
+    const existing = await findUserWithEmail(db, address, {
+      includeOidcUsers: false,
+    });
+    // A suspended or deprovisioned user gets no link and no session. At the
+    // request phase this refusal looks like every other one.
+    if (existing && existing.status !== "active") {
+      return { allowed: false, email: address, phase, reason: "user_inactive" };
+    }
     const allowed =
-      (await userExistsWithEmail(db, address, { includeOidcUsers: false })) ||
-      (await newAddressAllowedToSignIn(db, address));
+      existing !== null || (await newAddressAllowedToSignIn(db, address));
     return {
       allowed,
       email: address,
@@ -440,16 +458,20 @@ async function evaluateSignIn({
     if (!ghEmail) return { allowed: false, reason: "missing_email" };
 
     const existing = await db
-      .select({ id: users.id })
+      .select({ status: users.status })
       .from(users)
       .where(eq(users.pingSubject, ghSub))
       .limit(1);
-    if (existing[0]) return { allowed: true, email: ghEmail };
+    if (existing[0]) {
+      return existing[0].status === "active"
+        ? { allowed: true, email: ghEmail }
+        : { allowed: false, email: ghEmail, reason: "user_inactive" };
+    }
 
     // A GitHub identity is never attached to an existing user by address.
     // Someone who first signed in by magic link keeps using magic links.
     const address = ghEmail.trim().toLowerCase();
-    if (await userExistsWithEmail(db, address, { includeOidcUsers: true })) {
+    if (await findUserWithEmail(db, address, { includeOidcUsers: true })) {
       return { allowed: false, email: ghEmail, reason: "email_in_use" };
     }
 
@@ -492,6 +514,9 @@ async function evaluateOidcSignIn(
 
   try {
     const result = await provisionOidcUser(db, identity, oidc);
+    if ("refused" in result) {
+      return { allowed: false, email: identity.email, reason: result.refused };
+    }
     if (result.created) oidcNewUserSignIns.add(account);
     if (result.adopted || result.roleChange) {
       const request = await authRequestContext();
@@ -600,10 +625,16 @@ export const authOptions: NextAuthOptions = {
         request: await authRequestContext(),
       });
       const { reason } = decision;
+      const provider = params.account?.provider;
+      // GitHub and OIDC refusals come after the identity provider has
+      // authenticated the person, so saying why reveals nothing to a
+      // stranger. Magic-link refusals never say why.
       const explained =
         reason !== undefined &&
         Object.hasOwn(SIGN_IN_DENIAL_MESSAGES, reason) &&
-        (params.account?.provider === "pingone" || reason === "email_in_use");
+        (provider === "pingone" ||
+          (provider === "github" &&
+            (reason === "email_in_use" || reason === "user_inactive")));
       return explained
         ? `${PUBLIC_BASE_URL}/login?error=AccessDenied&reason=${reason}`
         : false;
@@ -618,49 +649,43 @@ export const authOptions: NextAuthOptions = {
      *     DB uuid; re-read it for the role.
      *   - github: run `ensureUser` keyed by the GitHub subject, exactly as
      *     before the adapter existed.
-     * Refresh (no `account`): re-read by `ghSub` (GitHub-originated tokens)
-     * or by `userId` (magic-link- and OIDC-originated tokens) so role changes
-     * take effect without a fresh sign-in.
+     *   Either way `sv` is set to the row's `session_version`. It is written
+     *   here and nowhere else, so a token keeps the version it was issued
+     *   with, and `getSessionUser` refuses it once a suspension bumps the row.
+     *
+     * Refresh (no `account`, which includes every `getServerSession` call):
+     * re-read the row by `userId` so a role or address change shows on the
+     * token without a fresh sign-in. A read only: a refresh never writes the
+     * row and never changes `sv`.
      */
     async jwt({ token, account, profile, user }) {
-      if (account?.provider === "email" || account?.provider === "pingone") {
+      if (!account) {
+        const row = token.userId ? await findUserById(token.userId) : null;
+        if (row) {
+          token.role = row.role;
+          token.email = row.email;
+          token.name = row.displayName;
+        }
+        return token;
+      }
+
+      if (account.provider === "email" || account.provider === "pingone") {
         const row = user?.id ? await findUserById(user.id) : null;
-        if (row) {
-          token.userId = row.id;
-          token.role = row.role;
-          token.email = row.email;
-          token.name = row.displayName;
-        }
+        if (row) stampSignIn(token, row);
         return token;
       }
 
-      const ghSub = account
-        ? String(account.providerAccountId)
-        : (token.ghSub as string | undefined);
-
-      if (!ghSub && token.userId) {
-        // Magic-link or OIDC session refresh: no external subject on the token.
-        const row = await findUserById(token.userId);
-        if (row) {
-          token.role = row.role;
-          token.email = row.email;
-          token.name = row.displayName;
-        }
-        return token;
-      }
-
+      const ghSub = String(account.providerAccountId);
       const email =
         (profile as { email?: string | null } | undefined)?.email ??
         user?.email ??
-        (token.email as string | undefined) ??
         null;
       const displayName =
         (profile as { name?: string | null } | undefined)?.name ??
         user?.name ??
-        (token.name as string | undefined) ??
         email ??
         null;
-      if (!ghSub || !email || !displayName) return token;
+      if (!email || !displayName) return token;
 
       const dbUser = await ensureUser({
         id: ghSub,
@@ -669,10 +694,7 @@ export const authOptions: NextAuthOptions = {
       });
 
       token.ghSub = ghSub;
-      token.userId = dbUser.id;
-      token.role = dbUser.role;
-      token.email = dbUser.email;
-      token.name = dbUser.displayName;
+      stampSignIn(token, dbUser);
       return token;
     },
 
@@ -688,11 +710,20 @@ export const authOptions: NextAuthOptions = {
         session.user.email = (token.email as string) ?? session.user.email;
         session.user.displayName =
           (token.name as string) ?? session.user.name ?? "";
+        session.user.sessionVersion = token.sv;
       }
       return session;
     },
   },
 };
+
+function stampSignIn(token: JWT, row: DbUser): void {
+  token.userId = row.id;
+  token.role = row.role;
+  token.email = row.email;
+  token.name = row.displayName;
+  token.sv = row.sessionVersion;
+}
 
 async function findUserById(id: string) {
   const rows = await getDb()

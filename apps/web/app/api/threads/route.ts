@@ -1,7 +1,6 @@
 import { chatThreads, getDb } from "@ai-workspace/db";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { asc, desc } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { auditAdminDataAccessBatch } from "@/lib/admin-data-access";
 import { requireSession } from "@/lib/auth/requireSession";
 import { userScope } from "@/lib/auth/scope";
 
@@ -11,11 +10,9 @@ const DEFAULT_LIMIT = 8;
 const MAX_LIMIT = 50;
 
 /**
- * GET /api/threads?limit=8 — list pinned threads first, then by recency.
- *
- * `role = 'user'`  → caller's threads only.
- * `role = 'admin'` → all threads across the workspace (for the admin UI),
- * unless `scope=mine` is requested by a personal navigation surface.
+ * GET /api/threads?limit=8 — the caller's threads, pinned first, then by
+ * recency. Scoped to the caller for every role: an admin's list is the
+ * admin's own threads.
  */
 export async function GET(req: Request) {
   const session = await requireSession();
@@ -29,11 +26,6 @@ export async function GET(req: Request) {
     Number.isFinite(parsed) && parsed > 0
       ? Math.min(parsed, MAX_LIMIT)
       : DEFAULT_LIMIT;
-  const personalScope = url.searchParams.get("scope") === "mine";
-  const scope =
-    personalScope
-      ? eq(chatThreads.userId, sessionUser.id)
-      : userScope(sessionUser, chatThreads.userId);
 
   const db = getDb();
 
@@ -50,27 +42,14 @@ export async function GET(req: Request) {
       updatedAt: chatThreads.updatedAt,
       userId: chatThreads.userId,
     })
-    // scoping-guard-allow: predicate is the `scope` variable built from userScope() above and applied in the .where() below
     .from(chatThreads)
-    .where(and(scope))
+    .where(userScope(sessionUser, chatThreads.userId))
     .orderBy(
       desc(chatThreads.pinned),
       desc(chatThreads.updatedAt),
       asc(chatThreads.id),
     )
     .limit(limit);
-
-  await auditAdminDataAccessBatch({
-    db,
-    actor: sessionUser,
-    accesses: rows.map((thread) => ({
-      targetUserId: thread.userId,
-      resourceType: "chat_thread_collection",
-      resourceId: personalScope ? "mine" : "workspace",
-      surface: "thread_list",
-      resourceCount: 1,
-    })),
-  });
 
   return NextResponse.json({ threads: rows });
 }

@@ -766,6 +766,17 @@ describe("poison-pill attempt ceiling (#464)", () => {
     expect(params).toContain(3);
   });
 
+  it("claims only runs whose owner is active, on the targeted path too (WP-18)", async () => {
+    const { db, captured } = capturingDb(async () => []);
+
+    const result = await processQueuedChatRun({ db, runId: "run-1" });
+
+    expect(result).toEqual({ status: "idle" });
+    expect(rendered(captured[0]!.condition).sql).toContain(
+      `exists (select 1 from "users" where "users"."id" = "runs"."user_id" and "users"."status" = 'active')`,
+    );
+  });
+
   it("takes the ceiling from CHAT_RUN_MAX_ATTEMPTS", async () => {
     vi.mocked(numberFromEnv).mockImplementation((name: string) =>
       name === "CHAT_RUN_MAX_ATTEMPTS" ? 5 : undefined,

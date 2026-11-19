@@ -916,6 +916,9 @@ async function smokeSessionCookie() {
       role: "user",
       email: SMOKE_EMAIL,
       name: SMOKE_NAME,
+      // seedSmokeUser leaves session_version at its default; getSessionUser
+      // refuses a token whose sv does not match it.
+      sv: 0,
       iat: Math.floor(Date.now() / 1000),
       exp: expires,
     },

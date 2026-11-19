@@ -23,6 +23,8 @@ export const SIGN_IN_DENIAL_MESSAGES: Partial<Record<AuthDenialReason, string>> 
       "Your account isn't in the group that has access to this workspace. Ask your administrator for access.",
     provisioning_failed:
       "Sign-in couldn't be completed. Try again in a moment.",
+    user_inactive:
+      "This account has been suspended or deprovisioned. Contact an admin.",
   };
 
 /** The message for a `reason` query value, or null for anything unknown. */

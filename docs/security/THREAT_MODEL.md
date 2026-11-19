@@ -58,7 +58,7 @@ end state.
 | Web/worker -> Bedrock/AgentCore | Prompt, context, attachments, tool schemas/results | AWS task IAM, bounded context, redaction, model registry, tool-iteration cap | `bedrock:InvokeModel*` resource is broad; cross-region profiles; no Bedrock Guardrail/DLP baseline |
 | Runtime -> MCP/provider | Delegated token, tool arguments/results | Per-user token lookup, encrypted token store, attestation/catalog gate, provider validation, write-context controls where implemented | Tri-state policy/approval is not universal; provider compromise; broad outbound network |
 | Runtime -> public web | Query, URL, fetched text | Explicit web capability, private/link-local/metadata address blocking, DNS/redirect re-checks, response caps, admin denylist, untrusted-content framing | Arbitrary public host egress; denylist rather than allowlist; public HTTP is permitted |
-| Admin -> another user's data | Runs, threads, apps, feedback | `requireAdmin`, scoped support routes, `admin_data_access` receipts, justification header | Coarse admin role; no just-in-time elevation or dual control |
+| Admin -> another user's data | Runs, apps, feedback (not threads, since WP-18) | `requireAdmin`, explicit admin routes, a required reason and an `admin.user_data_access` receipt written first for run content, `admin_data_access` receipts for listings | Coarse admin role; no just-in-time elevation or dual control |
 | CI/CD -> AWS production | Source commit, images, CDK, migrations, service updates | Protected PR gate (8 required contexts, `strict`, `enforce_admins`), commit-SHA tags with digest receipts, ECS circuit breaker, authenticated smoke, post-merge gate audit | Pipeline is not fully reconstructable in IaC (#467); production migration is pre-deploy and there is no staging environment to rehearse it in (#697); image tags are mutable (#449); see T16-T18 for the gate's own threats |
 
 ## Abuse cases and controls
@@ -67,7 +67,7 @@ end state.
 |---|---|---|---|---|
 | T1 | Spoofing | Forge a session or reuse an invite/magic link | Signed JWT cookie, HTTPS, random invite token, hashed single-use magic-link token, short magic-link expiry, invite-gated sign-in, rate limits | Rotate `NEXTAUTH_SECRET` on exposure; enterprise IdP and SCIM are not live |
 | T2 | Spoofing / Repudiation | Forge or replay an event-trigger webhook | GitHub HMAC validation, delivery-id uniqueness, durable delivery receipt, trigger rate limit | Add source-specific controls before accepting another webhook provider |
-| T3 | Elevation / Information disclosure | Change a resource id to read or write another user's data | Canonical `getSessionUser`, owner-scoped queries, 404-style non-disclosure, app/share role resolvers, real-Postgres scoping tests | Coarse admin bypass remains; every new route needs positive and negative scope tests |
+| T3 | Elevation / Information disclosure | Change a resource id to read or write another user's data | Canonical `getSessionUser`, owner-scoped queries, 404-style non-disclosure, app/share role resolvers, real-Postgres scoping tests | Admin bypasses remain outside `userScope()` (app governance, skills visibility, share management, admin run cancel/retry/resume); every new route needs positive and negative scope tests |
 | T4 | Elevation | A shared skill/app uses the owner's credential for another user | Execution re-resolves the acting user's OAuth token and attestations; shares do not copy credentials | Preserve this invariant when adding app live-data writes or shared scheduled runs |
 | T5 | Tampering / Elevation | Uploaded/provider/web content tells the model to ignore policy or call a dangerous tool | Nonce-delimited untrusted-content framing, attachment secret scan, deterministic tri-state catalog policy, durable approvals, eight-iteration cap, and result redaction | An undeclared or externally mounted tool fails closed to needs-approval (#701); Bedrock Guardrails/DLP remain pending #492 |
 | T6 | Information disclosure | Secret appears in a prompt, tool result, log, trace, or artifact | Secrets live outside prompts, OAuth ciphertext at rest, payload redaction, trace byte/redaction limits, secret scan for uploads/artifacts, credentialed URLs rejected | Application log coverage must be reviewed continuously; RDS storage itself is unencrypted |
@@ -164,8 +164,12 @@ is the weakest part of this decision and is tracked in #694.
 
 - `session.user.id` maps to `users.id`; caller-supplied user IDs never establish
   identity.
-- Normal reads and writes use owner scope. Admin cross-owner reads use explicit
-  admin routes or scoped helpers and create `admin_data_access` receipts.
+- Normal reads and writes use owner scope, for admins too (`userScope()` has no
+  admin bypass since WP-18). Admin cross-owner reads use explicit admin routes:
+  run content needs a reason and writes `admin.user_data_access` before it is
+  returned; admin listings and app governance write `admin_data_access`.
+- A suspended or deprovisioned user's JWT is refused on the next request
+  (`users.session_version`), and the worker and scheduler skip their work.
 - A share grants the documented app/skill role only. It never grants a
   credential, connection, or attestation.
 - Tool mounting is resolved for the acting user on each turn. A model cannot

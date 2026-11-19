@@ -55,9 +55,11 @@ flowchart LR
 5. **Application to arbitrary public web:** the built-in fetch tool can request
    a public HTTP(S) host after scheme, DNS, redirect, and private-address
    checks. An admin denylist exists; there is no network allowlist.
-6. **Operator to cross-owner data:** admins can inspect runs, threads, apps,
-   and feedback for support. Cross-owner reads create `admin_data_access`
-   receipts.
+6. **Operator to cross-owner data:** admins can inspect runs, apps and
+   feedback for support, but not threads: their personal surfaces are scoped
+   to their own rows like anyone's (WP-18). Opening another user's run content
+   needs a reason and writes an `admin.user_data_access` receipt first; admin
+   listings, feedback and app governance write `admin_data_access` receipts.
 7. **CI/CD to production:** CodeBuild, ECR, CloudFormation/CDK, and ECS deploy
    commit-tagged images. Deploy receipts correlate source and task
    definitions. The ECR repositories are `MUTABLE` and the buildspecs also push

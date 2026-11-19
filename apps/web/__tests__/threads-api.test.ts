@@ -90,6 +90,17 @@ afterEach(() => {
 });
 
 describe("GET /api/threads", () => {
+  it("scopes an admin's list to the admin's own threads", async () => {
+    currentSession = { ...session, id: "user-admin", role: "admin" };
+    installMocks();
+
+    const { GET } = await import("@/app/api/threads/route");
+    const response = await GET(new Request("http://localhost/api/threads"));
+
+    expect(response.status).toBe(200);
+    expect(equalityValues).toEqual(["user-admin"]);
+  });
+
   it("returns pinned metadata in pin-first, newest-first query order for the personal scope", async () => {
     selectRows = [
       {
@@ -109,7 +120,7 @@ describe("GET /api/threads", () => {
 
     const { GET } = await import("@/app/api/threads/route");
     const response = await GET(
-      new Request("http://localhost/api/threads?limit=50&scope=mine"),
+      new Request("http://localhost/api/threads?limit=50"),
     );
     const body = (await response.json()) as {
       threads: Array<{ id: string; pinned: boolean }>;

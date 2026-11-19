@@ -86,7 +86,7 @@ export function useChatResources() {
   const refreshThreads = useCallback(async () => {
     try {
       const data = await fetchJson<ThreadsResponse>(
-        `/api/threads?limit=${THREADS_LIMIT}&scope=mine`,
+        `/api/threads?limit=${THREADS_LIMIT}`,
         undefined,
         "Could not load chats.",
       );

@@ -1,4 +1,4 @@
-import { getDb, users } from "@ai-workspace/db";
+import { getDb, users, type UserStatus } from "@ai-workspace/db";
 import { desc } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
@@ -10,6 +10,9 @@ export interface AdminUserRow {
   email: string;
   displayName: string;
   role: "admin" | "user";
+  status: UserStatus;
+  statusChangedAt: string | null;
+  statusReason: string | null;
   createdAt: string;
   lastSeenAt: string;
 }
@@ -25,6 +28,9 @@ export async function GET() {
       email: users.email,
       displayName: users.displayName,
       role: users.role,
+      status: users.status,
+      statusChangedAt: users.statusChangedAt,
+      statusReason: users.statusReason,
       createdAt: users.createdAt,
       lastSeenAt: users.lastSeenAt,
     })
@@ -36,6 +42,9 @@ export async function GET() {
     email: r.email,
     displayName: r.displayName,
     role: r.role,
+    status: r.status,
+    statusChangedAt: r.statusChangedAt?.toISOString() ?? null,
+    statusReason: r.statusReason,
     createdAt: r.createdAt.toISOString(),
     lastSeenAt: r.lastSeenAt.toISOString(),
   }));

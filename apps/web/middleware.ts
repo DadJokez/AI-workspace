@@ -14,6 +14,15 @@ import { getToken } from "next-auth/jwt";
  * `jwt` callback (apps/web/lib/auth/nextauth.ts), so it's available here
  * without a DB lookup. `app/admin/layout.tsx` re-checks server-side as
  * defense in depth.
+ *
+ * This is page gating, not authorization. The edge never sees the `users`
+ * row, so a suspended or deprovisioned user whose JWT is still unexpired gets
+ * past this check (as does a demoted admin until the token refreshes). That
+ * is acceptable because nothing is served on the strength of the token alone:
+ * every API route and server-rendered page resolves its user through
+ * `getSessionUser`, which refuses a user who is not active or whose token's
+ * `sv` no longer matches `users.session_version`. Pinned in
+ * `__tests__/middleware.test.ts` and `__tests__/get-session-user.test.ts`.
  */
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
