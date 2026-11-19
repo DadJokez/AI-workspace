@@ -1,3 +1,4 @@
+import type { UserRole } from "@ai-workspace/auth";
 import { auditLog, getDb, type Database } from "@ai-workspace/db";
 
 /**
@@ -25,13 +26,36 @@ export const AUTH_AUDIT_USER_AGENT_MAX = 256;
 export type AuthAuditAction =
   | "auth_sign_in"
   | "auth_sign_in_denied"
-  | "auth_sign_out";
+  | "auth_sign_out"
+  /** A magic link was sent (the request passed the gate). */
+  | "auth_magic_link_requested"
+  /** A magic-link user was re-keyed to an OIDC subject. */
+  | "auth_identity_adopted"
+  /** An OIDC sign-in changed the stored role from the groups claim. */
+  | "auth_role_synced";
 
-/** Why a sign-in was refused. Never free-form text from the caller. */
+/**
+ * Why a sign-in was refused. Never free-form text from the caller or from an
+ * identity provider's claims.
+ */
 export type AuthDenialReason =
   | "not_invited"
   | "missing_email"
-  | "unsupported_provider";
+  | "unsupported_provider"
+  /** GitHub address already belongs to a user with a different identity. */
+  | "email_in_use"
+  /** Address outside MAGIC_LINK_ALLOWED_DOMAINS. */
+  | "magic_link_domain_not_allowed"
+  /** MAGIC_LINK_SUNSET has passed. */
+  | "magic_link_sunset"
+  /** OIDC `sub` claim absent or not a bounded string. */
+  | "invalid_subject"
+  /** OIDC_REQUIRED_GROUP is set and the groups claim is absent or malformed. */
+  | "groups_claim_unreadable"
+  /** OIDC_REQUIRED_GROUP is set and the groups claim does not contain it. */
+  | "required_group_missing"
+  /** The OIDC user row could not be written. */
+  | "provisioning_failed";
 
 /**
  * Magic links run the gate twice: once when the link is requested (before any
@@ -49,13 +73,18 @@ export interface AuthAuditEvent {
   action: AuthAuditAction;
   /** DB user id; null for denials and for tokens that predate `userId`. */
   actorUserId?: string | null;
-  /** NextAuth provider id ("github" | "email"), not a credential. */
+  /** NextAuth provider id ("github" | "email" | "pingone"), not a credential. */
   authProvider?: string | null;
-  /** Attempted address — denials only, so the row identifies the subject. */
+  /**
+   * Attempted address: denials and magic-link requests, where there is no
+   * user id yet to identify the subject.
+   */
   email?: string | null;
   reason?: AuthDenialReason;
   phase?: AuthSignInPhase;
   isNewUser?: boolean;
+  /** `auth_role_synced` only: the role before and after. */
+  roleChange?: { from: UserRole; to: UserRole };
   request?: AuthRequestContext | null;
 }
 
@@ -72,6 +101,8 @@ export interface AuthAuditRow {
     authProvider?: string;
     phase?: AuthSignInPhase;
     isNewUser?: boolean;
+    previousRole?: UserRole;
+    newRole?: UserRole;
     ip?: string;
     userAgent?: string;
   };
@@ -132,6 +163,12 @@ export function buildAuthAuditRow(event: AuthAuditEvent): AuthAuditRow {
       ...(typeof event.isNewUser === "boolean"
         ? { isNewUser: event.isNewUser }
         : {}),
+      ...(event.roleChange
+        ? {
+            previousRole: event.roleChange.from,
+            newRole: event.roleChange.to,
+          }
+        : {}),
       ...(event.request?.ip ? { ip: event.request.ip } : {}),
       ...(event.request?.userAgent
         ? { userAgent: event.request.userAgent }
@@ -147,10 +184,12 @@ export function buildAuthAuditRow(event: AuthAuditEvent): AuthAuditRow {
  */
 export async function recordAuthEvent(
   event: AuthAuditEvent,
-  db: Database = getDb(),
+  db?: Database,
 ): Promise<void> {
   try {
-    await db.insert(auditLog).values(buildAuthAuditRow(event));
+    // Resolved inside the try: a ledger that cannot even be reached is the
+    // same failure as one that rejects the write.
+    await (db ?? getDb()).insert(auditLog).values(buildAuthAuditRow(event));
   } catch (error) {
     console.error(
       `[auth-audit] failed to record ${event.action}: ${

@@ -237,6 +237,64 @@ describe("PATCH /api/admin/users/[id]", () => {
     });
   });
 
+  describe("when the identity provider owns the admin role", () => {
+    const oidcEnv = {
+      AUTH_PROVIDERS: "pingone",
+      OIDC_ISSUER: "https://sso.example",
+      OIDC_CLIENT_ID: "comparative",
+      OIDC_CLIENT_SECRET: "client-secret",
+    };
+    // What the prior-role lookup returns for an OIDC user.
+    const oidcUserRow = [{ role: "user", oidcUser: true }] as never;
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("refuses to change an OIDC user's role by hand (OIDC_ADMIN_GROUP set)", async () => {
+      for (const [name, value] of Object.entries({
+        ...oidcEnv,
+        OIDC_ADMIN_GROUP: "comparative-admins",
+      })) {
+        vi.stubEnv(name, value);
+      }
+      setSession(adminSession);
+      installDbMock();
+      dbHooks.selectRows = oidcUserRow;
+      let setCalled = false;
+      dbHooks.onUpdateSet = () => {
+        setCalled = true;
+      };
+
+      const { PATCH } = await import("@/app/api/admin/users/[id]/route");
+      const res = await PATCH(makePatchReq({ role: "admin" }), {
+        params: Promise.resolve({ id: "user-uuid" }),
+      });
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({
+        error: "role_managed_by_identity_provider",
+      });
+      expect(setCalled).toBe(false);
+      expect(dbHooks.auditInserts).toBeUndefined();
+    });
+
+    it("still lets an admin change an OIDC user's role when no admin group is configured", async () => {
+      for (const [name, value] of Object.entries(oidcEnv)) {
+        vi.stubEnv(name, value);
+      }
+      setSession(adminSession);
+      installDbMock();
+      dbHooks.selectRows = oidcUserRow;
+
+      const { PATCH } = await import("@/app/api/admin/users/[id]/route");
+      const res = await PATCH(makePatchReq({ role: "admin" }), {
+        params: Promise.resolve({ id: "user-uuid" }),
+      });
+      expect(res.status).toBe(200);
+    });
+  });
+
   it("rejects an invalid role payload", async () => {
     setSession(adminSession);
     installDbMock();

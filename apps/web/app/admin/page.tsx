@@ -1,5 +1,5 @@
-import { getDb, invitations, users } from "@ai-workspace/db";
-import { desc } from "drizzle-orm";
+import { getDb, invitations, userGroups, users } from "@ai-workspace/db";
+import { asc, desc, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import {
   adminInvitationSelect,
@@ -7,6 +7,7 @@ import {
   type AdminInvitationRow,
 } from "@/lib/admin-invitations";
 import { getSessionUser } from "@/lib/auth/getSessionUser";
+import { OIDC, OIDC_SUBJECT_PREFIX } from "@/lib/deployment-config";
 import type { AdminUserRow } from "@/app/api/admin/users/route";
 import { UsersTable } from "./UsersTable";
 import { InvitationsPanel } from "./InvitationsPanel";
@@ -28,9 +29,24 @@ export default async function AdminUsersPage() {
       role: users.role,
       createdAt: users.createdAt,
       lastSeenAt: users.lastSeenAt,
+      oidcUser: sql<boolean>`starts_with(${users.pingSubject}, ${OIDC_SUBJECT_PREFIX})`,
     })
     .from(users)
     .orderBy(desc(users.createdAt));
+
+  // Group names the identity provider sent at each user's last OIDC sign-in.
+  const groupRows = await db
+    .select({ userId: userGroups.userId, groupName: userGroups.groupName })
+    .from(userGroups)
+    .orderBy(asc(userGroups.groupName));
+  const groupsByUserId: Record<string, string[]> = {};
+  for (const { userId, groupName } of groupRows) {
+    (groupsByUserId[userId] ??= []).push(groupName);
+  }
+  // With OIDC_ADMIN_GROUP set, the identity provider owns these users' roles.
+  const idpManagedRoleUserIds = OIDC?.adminGroup
+    ? rows.filter((r) => r.oidcUser).map((r) => r.id)
+    : [];
 
   const initialUsers: AdminUserRow[] = rows.map((r) => ({
     id: r.id,
@@ -64,6 +80,8 @@ export default async function AdminUsersPage() {
         <UsersTable
           initialUsers={initialUsers}
           currentUserId={sessionUser.id}
+          groupsByUserId={groupsByUserId}
+          idpManagedRoleUserIds={idpManagedRoleUserIds}
         />
       </section>
       <InvitationsPanel initialInvitations={initialInvitations} />

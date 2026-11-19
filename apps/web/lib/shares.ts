@@ -210,7 +210,7 @@ export async function createShare({
     .select({ id: users.id, email: users.email })
     .from(users)
     .where(eq(users.email, recipientEmail.trim().toLowerCase()))
-    .limit(1);
+    .limit(2);
   const recipient = recipientRows[0];
   if (!recipient) {
     return {
@@ -219,6 +219,18 @@ export async function createShare({
       error: "recipient_not_found",
       message:
         "No workspace user has that email. They need to sign in once (or be invited) first.",
+    };
+  }
+  // An address is not an identity: two users can hold the same one (a
+  // magic-link user and an OIDC user, or two OIDC subjects). Picking either
+  // could hand the share to the wrong person, so neither is picked.
+  if (recipientRows.length > 1) {
+    return {
+      ok: false,
+      status: 409,
+      error: "recipient_ambiguous",
+      message:
+        "More than one workspace user has that email, so the recipient can't be told apart. Ask an admin.",
     };
   }
   if (recipient.id === actor.id) {

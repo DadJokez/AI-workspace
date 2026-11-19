@@ -171,7 +171,6 @@ describe("GitHub addresses with the settings unset", () => {
     expect(provider.token).toBe("https://github.com/login/oauth/access_token");
     expect(provider.userinfo.url).toBe("https://api.github.com/user");
     expect(Object.keys(provider.options).sort()).toEqual([
-      "allowDangerousEmailAccountLinking",
       "clientId",
       "clientSecret",
     ]);

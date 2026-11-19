@@ -93,6 +93,7 @@ describe("egress inventory follows the deployment", () => {
     githubSignIn: false,
     githubWebHost: "ghe.example",
     githubApiHost: "ghe.example",
+    oidcIssuerHost: "sso.example",
     externalMcpHosts: {},
     webSearch: false,
     webFetch: false,
@@ -118,6 +119,22 @@ describe("egress inventory follows the deployment", () => {
       expect(hosts(koch), gone).not.toContain(gone);
     }
     expect(hosts(koch)).toContain("login.salesforce.com");
+  });
+
+  it("lists the OIDC issuer for the web service and the browser only while OIDC sign-in is on", () => {
+    const issuerRows = koch.filter((entry) => entry.host === "sso.example");
+    expect(
+      issuerRows.map(({ services, viaProxy }) => ({ services, viaProxy })),
+    ).toEqual([
+      { services: ["web"], viaProxy: true },
+      { services: ["browser"], viaProxy: false },
+    ]);
+
+    const off = buildEgressInventory({
+      ...REFERENCE_EGRESS_SETTINGS,
+      oidcIssuerHost: null,
+    });
+    expect(off.filter((entry) => /OIDC/.test(entry.purpose))).toEqual([]);
   });
 
   it("drops GitHub altogether when it is neither a connector nor a sign-in", () => {
@@ -161,6 +178,7 @@ describe("egress inventory follows the deployment", () => {
         "email.us-east-2.amazonaws.com",
         "ghe.example",
         "login.salesforce.com",
+        "sso.example",
       ],
       noProxy: [
         "127.0.0.1",
@@ -222,6 +240,23 @@ describe("egress inventory of this deployment", () => {
       "secretsmanager.eu-west-1.amazonaws.com",
       "test.salesforce.com",
     ]);
+  });
+
+  it("takes the OIDC issuer host from OIDC_ISSUER when pingone is enabled and configured", async () => {
+    vi.stubEnv("NEXTAUTH_URL", "https://comparative.example");
+    vi.stubEnv("AUTH_PROVIDERS", "pingone");
+    vi.stubEnv("OIDC_ISSUER", "https://auth.sso.example/tenant/as");
+    vi.stubEnv("OIDC_CLIENT_ID", "comparative");
+    vi.stubEnv("OIDC_CLIENT_SECRET", "client-secret");
+    const configured = await import("@/lib/egress-inventory");
+    expect(hosts(configured.EGRESS_INVENTORY)).toContain("auth.sso.example");
+
+    // The variable alone is not configuration: without pingone in
+    // AUTH_PROVIDERS nothing calls the issuer, so it is not listed.
+    vi.resetModules();
+    vi.stubEnv("AUTH_PROVIDERS", "email");
+    const staged = await import("@/lib/egress-inventory");
+    expect(hosts(staged.EGRESS_INVENTORY)).not.toContain("auth.sso.example");
   });
 
   it("has no GitHub MCP row when GITHUB_MCP_URL is empty", async () => {

@@ -9,7 +9,8 @@ import {
   verificationTokens,
   type User as DbUser,
 } from "@ai-workspace/db";
-import { and, eq, lt, sql } from "drizzle-orm";
+import { and, eq, like, lt, not, sql } from "drizzle-orm";
+import { OIDC_SUBJECT_PREFIX } from "@/lib/deployment-config";
 import { ensureUser } from "@/lib/users";
 
 /**
@@ -26,18 +27,22 @@ import { ensureUser } from "@/lib/users";
  *                          updateUser (existing user) | createUser (new)
  *   github oauth callback: getUserByAccount, getUserByEmail, createUser,
  *                          linkAccount
+ *   oidc callback:         getUserByAccount only (the sign-in gate has
+ *                          already written the row, see oidc-sign-in.ts)
  *   any callback with an existing session cookie: getUser (via JWT `sub`)
  *
  * Everything else (DB sessions, deleteUser, unlinkAccount) throws loudly so
  * an unexpected flow change fails visibly instead of corrupting user rows.
  *
- * Identity mapping: `users.ping_subject` holds the latest external subject —
- * GitHub OAuth id for GitHub sign-ins, `email:<address>` for users first
- * created via magic link (until a GitHub sign-in links and overwrites it).
- * The app's identity anchor is the email address, matching the invitation
- * system; `ensureUser` remains the single writer for user creation so
- * first-user-admin, invited-role, and invite-acceptance semantics hold for
- * every provider.
+ * Identity mapping: `users.ping_subject` holds the user's one external
+ * subject — the GitHub OAuth id for GitHub sign-ins, `email:<address>` for
+ * users created via magic link, `pingone:<sub>` for OIDC users. For GitHub
+ * and magic links `ensureUser` remains the single writer for user creation
+ * so first-user-admin, invited-role, and invite-acceptance semantics hold.
+ * OIDC users are written by the sign-in gate and are reachable by subject
+ * only: `getUserByEmail` never returns one, so a magic link cannot sign in
+ * as an identity the identity provider gates, and `linkAccount` never
+ * re-keys one.
  */
 
 const UUID_RE =
@@ -103,10 +108,16 @@ export function createNextAuthAdapter(): Adapter {
     async getUserByEmail(email) {
       // Case-insensitive: magic-link identifiers are lowercased by next-auth,
       // while GitHub-sourced rows store the address as the IdP returned it.
+      // OIDC users are excluded: they are matched by subject and nothing else.
       const rows = await getDb()
         .select()
         .from(users)
-        .where(sql`lower(${users.email}) = ${email.trim().toLowerCase()}`)
+        .where(
+          and(
+            sql`lower(${users.email}) = ${email.trim().toLowerCase()}`,
+            not(like(users.pingSubject, `${OIDC_SUBJECT_PREFIX}%`)),
+          ),
+        )
         .limit(1);
       return rows[0] ? toAdapterUser(rows[0]) : null;
     },
@@ -138,13 +149,30 @@ export function createNextAuthAdapter(): Adapter {
     },
 
     async linkAccount(account: AdapterAccount) {
-      // Single-subject model: ping_subject tracks the latest external
-      // subject. Fired when an OAuth account attaches to a user that was
-      // created via magic link (or via dangerous-email-linking on GitHub).
-      await getDb()
-        .update(users)
-        .set({ pingSubject: String(account.providerAccountId) })
-        .where(eq(users.id, account.userId));
+      // Single-subject model: ping_subject is the user's one external
+      // subject. Fired when a GitHub account attaches to the user next-auth
+      // has just created for it (placeholder `email:` subject), or to the
+      // user already signed in on this browser. Never for OIDC, in either
+      // direction: an OIDC subject is written only by the sign-in gate, and a
+      // user who has one keeps it.
+      const subject = String(account.providerAccountId);
+      const rows = subject.startsWith(OIDC_SUBJECT_PREFIX)
+        ? []
+        : await getDb()
+            .update(users)
+            .set({ pingSubject: subject })
+            .where(
+              and(
+                eq(users.id, account.userId),
+                not(like(users.pingSubject, `${OIDC_SUBJECT_PREFIX}%`)),
+              ),
+            )
+            .returning({ id: users.id });
+      if (rows.length === 0) {
+        throw new Error(
+          "nextauth-adapter: linkAccount refused (an OIDC identity is never linked to or replaced by another account).",
+        );
+      }
     },
 
     async createVerificationToken(verificationToken) {

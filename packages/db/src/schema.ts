@@ -18,8 +18,9 @@ import {
  * Core workspace schema.
  *
  * `users.ping_subject` holds the external identity-provider subject:
- *   - current POC: GitHub OAuth account id from NextAuth
- *   - enterprise: the OIDC `sub` claim from PingOne/PingFederate
+ *   - GitHub sign-in: the GitHub OAuth account id
+ *   - magic link: `email:<address>`
+ *   - OIDC (PingOne/PingFederate or any other issuer): `pingone:<sub>`
  */
 
 export const messageRoleEnum = pgEnum("message_role", [
@@ -167,7 +168,9 @@ export const users = pgTable(
      * Coarse permission tier. The first user ever to sign in is promoted to
      * `admin`; everyone else defaults to `user`. Admins bypass per-user
      * scoping on threads/messages/usage queries; users see only their own
-     * rows. Assigned in the sign-in path (`ensureUser`), not by the IdP.
+     * rows. Assigned in the sign-in path (`ensureUser`). For OIDC users with
+     * OIDC_ADMIN_GROUP set, the identity provider's groups claim decides it
+     * at every sign-in instead.
      */
     role: userRoleEnum("role").notNull().default("user"),
     /**
@@ -210,6 +213,36 @@ export const users = pgTable(
   },
   (t) => ({
     pingSubjectUnique: uniqueIndex("users_ping_subject_idx").on(t.pingSubject),
+    // The sign-in gate and the auth adapter match addresses case-insensitively.
+    emailLowerIdx: index("users_email_lower_idx").on(sql`lower(${t.email})`),
+  }),
+);
+
+/**
+ * Group memberships the identity provider asserted at the user's last OIDC
+ * sign-in. The user's rows are replaced in one transaction on every sign-in.
+ * Access and the admin role are decided from the claim at sign-in, not from
+ * this table; it is the record an admin reads back, and the seed of group
+ * scoping (#491).
+ */
+export const userGroups = pgTable(
+  "user_groups",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    groupName: text("group_name").notNull(),
+    source: text("source").notNull().default("oidc"),
+    syncedAt: timestamp("synced_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({
+      name: "user_groups_user_id_group_name_pk",
+      columns: [t.userId, t.groupName],
+    }),
+    groupNameIdx: index("user_groups_group_name_idx").on(t.groupName),
   }),
 );
 

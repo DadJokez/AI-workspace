@@ -11,4 +11,10 @@ describe("decideInitialRole — first-signup-becomes-admin", () => {
     expect(decideInitialRole(2)).toBe("user");
     expect(decideInitialRole(99)).toBe("user");
   });
+
+  it("promotes nobody for arriving first once OIDC is enabled", () => {
+    expect(decideInitialRole(0, true)).toBe("user");
+    expect(decideInitialRole(1, true)).toBe("user");
+    expect(decideInitialRole(0, false)).toBe("admin");
+  });
 });

@@ -7,13 +7,20 @@ import {
 } from "@ai-workspace/db";
 import type { User as AuthUser, UserRole } from "@ai-workspace/auth";
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { OIDC_ENABLED } from "@/lib/deployment-config";
 
 /**
- * The first user ever to sign in is promoted to `admin`. Pure helper so the
- * decision is unit-testable without spinning up the DB. Used by `ensureUser`.
+ * The first user ever to sign in is promoted to `admin`, unless OIDC is
+ * enabled: there admins come from the identity provider's admin group
+ * (OIDC_ADMIN_GROUP) and nobody is promoted for arriving first. Pure helper
+ * so the decision is unit-testable without spinning up the DB. Used by
+ * `ensureUser`.
  */
-export function decideInitialRole(existingUserCount: number): UserRole {
-  return existingUserCount === 0 ? "admin" : "user";
+export function decideInitialRole(
+  existingUserCount: number,
+  oidcEnabled: boolean = OIDC_ENABLED,
+): UserRole {
+  return existingUserCount === 0 && !oidcEnabled ? "admin" : "user";
 }
 
 /**
@@ -42,16 +49,17 @@ export async function findPendingInvitation(
 /**
  * Upsert the authenticated user into the `users` table on each request that
  * needs a DB row. `pingSubject` is the canonical external identity subject
- * (GitHub OAuth id today; PingOne/PingFederate OIDC `sub` in enterprise).
+ * (the GitHub OAuth id, or `email:<address>` for a magic-link user). OIDC
+ * users are not written here: see `provisionOidcUser`.
  *
  * On update we deliberately do NOT overwrite `display_name` from the auth
  * payload — the DB row is authoritative once a user has set a name via
  * Settings. Email is still refreshed (the IdP owns that). `lastSeenAt` is
  * always bumped.
  *
- * The first user ever to land here is promoted to `admin`. This is the
- * sign-in callback path used by NextAuth. The same admin-on-first-signup rule
- * should remain when the provider swaps from GitHub OAuth to enterprise OIDC.
+ * The first user ever to land here is promoted to `admin` (see
+ * `decideInitialRole` for when that rule is off). This is the sign-in
+ * callback path used by NextAuth.
  */
 export async function ensureUser(authUser: AuthUser): Promise<DbUser> {
   const db = getDb();

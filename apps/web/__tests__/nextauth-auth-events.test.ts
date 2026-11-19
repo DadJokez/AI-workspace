@@ -325,6 +325,136 @@ describe("nextauth — auth event auditing", () => {
 
 });
 
+describe("nextauth — WP-17 denials and magic-link requests in the ledger", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.doUnmock("@/lib/magic-link-email");
+  });
+
+  // biome-ignore lint/suspicious/noExplicitAny: NextAuth's Account type is wider than we use
+  const emailAccount = (address: string): any => ({
+    provider: "email",
+    providerAccountId: address,
+    type: "email",
+  });
+
+  it("records a request refused by MAGIC_LINK_ALLOWED_DOMAINS, and answers like any other refusal", async () => {
+    vi.stubEnv("MAGIC_LINK_ALLOWED_DOMAINS", "example.com");
+    const inserted: Record<string, unknown>[] = [];
+    const authOptions = await loadAuthOptions(allowAll, inserted);
+
+    const allowed = await authOptions.callbacks?.signIn?.({
+      // biome-ignore lint/suspicious/noExplicitAny: adapter-user stub shape
+      user: { id: "x", email: "tester@evil-example.com" } as any,
+      account: emailAccount("tester@evil-example.com"),
+      email: { verificationRequest: true },
+      credentials: undefined,
+    });
+
+    // A bare false, exactly what an uninvited address gets: the caller cannot
+    // tell the domain rule from the invite gate.
+    expect(allowed).toBe(false);
+    expect(inserted).toEqual([
+      expect.objectContaining({
+        actionType: "auth_sign_in_denied",
+        status: "denied",
+        input: { email: "tester@evil-example.com" },
+        error: "magic_link_domain_not_allowed",
+        metadata: expect.objectContaining({
+          authProvider: "email",
+          phase: "link_request",
+        }),
+      }),
+    ]);
+  });
+
+  it("records a link clicked after the sunset", async () => {
+    vi.stubEnv("MAGIC_LINK_SUNSET", "2020-01-01");
+    const inserted: Record<string, unknown>[] = [];
+    const authOptions = await loadAuthOptions(allowAll, inserted);
+
+    const allowed = await authOptions.callbacks?.signIn?.({
+      // biome-ignore lint/suspicious/noExplicitAny: adapter-user stub shape
+      user: { id: "x", email: "tester@example.com" } as any,
+      account: emailAccount("tester@example.com"),
+      credentials: undefined,
+    });
+
+    expect(allowed).toBe(false);
+    expect(inserted[0]).toMatchObject({
+      actionType: "auth_sign_in_denied",
+      error: "magic_link_sunset",
+      metadata: { phase: "callback" },
+    });
+  });
+
+  it("records a GitHub sign-in refused because its address belongs to another identity", async () => {
+    const inserted: Record<string, unknown>[] = [];
+    const authOptions = await loadAuthOptions(
+      { usersSelects: [false, true], existingUserCount: 5, pendingInviteForEmail: true },
+      inserted,
+    );
+
+    const result = await authOptions.callbacks?.signIn?.({
+      user: { id: "12345", email: "tester@example.com", name: "Tester" },
+      account: githubAccount,
+      // biome-ignore lint/suspicious/noExplicitAny: profile shape is provider-specific
+      profile: { email: "tester@example.com" } as any,
+      credentials: undefined,
+    });
+
+    expect(result).toMatch(/\/login\?error=AccessDenied&reason=email_in_use$/);
+    expect(inserted[0]).toMatchObject({
+      actionType: "auth_sign_in_denied",
+      status: "denied",
+      input: { email: "tester@example.com" },
+      error: "email_in_use",
+      metadata: { authProvider: "github" },
+    });
+    expect(JSON.stringify(inserted)).not.toContain(ACCESS_TOKEN);
+  });
+
+  it("records each magic link it sends, without the link", async () => {
+    const sendMagicLinkEmail = vi.fn(async () => ({
+      delivered: true,
+      messageId: "m-1",
+    }));
+    vi.doMock("@/lib/magic-link-email", async () => ({
+      ...(await vi.importActual<typeof import("@/lib/magic-link-email")>(
+        "@/lib/magic-link-email",
+      )),
+      sendMagicLinkEmail,
+    }));
+    const inserted: Record<string, unknown>[] = [];
+    const authOptions = await loadAuthOptions(allowAll, inserted);
+    const provider = authOptions.providers.find(
+      (p) => p.id === "email",
+    ) as unknown as {
+      sendVerificationRequest: (params: Record<string, unknown>) => Promise<void>;
+    };
+    const url =
+      "https://comparative.example/api/auth/callback/email?token=one-time-secret-token";
+
+    await provider.sendVerificationRequest({
+      identifier: "tester@example.com",
+      url,
+      expires: new Date(),
+    });
+
+    expect(sendMagicLinkEmail).toHaveBeenCalledTimes(1);
+    expect(inserted).toEqual([
+      expect.objectContaining({
+        actorUserId: null,
+        actionType: "auth_magic_link_requested",
+        status: "succeeded",
+        input: { email: "tester@example.com" },
+        metadata: expect.objectContaining({ authProvider: "email" }),
+      }),
+    ]);
+    expect(JSON.stringify(inserted)).not.toContain("one-time-secret-token");
+  });
+});
+
 describe("nextauth — session policy", () => {
   it("pins an explicit 24h idle session instead of the 30-day default", async () => {
     const authOptions = await loadAuthOptions(allowAll, []);

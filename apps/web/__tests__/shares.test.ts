@@ -148,6 +148,50 @@ describe("parseAppShareRole", () => {
   });
 });
 
+describe("createShare recipient lookup", () => {
+  const request = {
+    actor: owner,
+    subjectType: "skill" as const,
+    subjectId: "skill-1",
+    subjectSlug: "my-skill",
+    recipientEmail: "recipient@example.com",
+  };
+
+  it("shares with the one user who holds the address", async () => {
+    installDbMock();
+    selectQueue = [[{ id: recipient.id, email: recipient.email }]];
+    returningRows = [{ id: "share-1", role: "viewer" }];
+    const { createShare } = await import("@/lib/shares");
+    const { getDb } = await import("@ai-workspace/db");
+
+    const result = await createShare({ db: getDb(), ...request });
+
+    expect(result.ok).toBe(true);
+    expect(insertValues[0]).toMatchObject({ grantedToUserId: recipient.id });
+  });
+
+  it("refuses to guess when two users hold the same address", async () => {
+    installDbMock();
+    selectQueue = [
+      [
+        { id: recipient.id, email: recipient.email },
+        { id: "other-uuid", email: recipient.email },
+      ],
+    ];
+    const { createShare } = await import("@/lib/shares");
+    const { getDb } = await import("@ai-workspace/db");
+
+    const result = await createShare({ db: getDb(), ...request });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 409,
+      error: "recipient_ambiguous",
+    });
+    expect(insertValues).toEqual([]);
+  });
+});
+
 describe("app share management", () => {
   const adminCreatedAppShare = {
     id: "share-1",

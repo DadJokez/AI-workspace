@@ -13,6 +13,7 @@ import {
   GITHUB_EVENT_INGEST_MODE,
   GITHUB_WEB_URL,
   INTERNAL_BASE_URL,
+  OIDC,
   WEB_FETCH_ENABLED,
   readDeploymentConfig,
   serverCallbackBaseUrl,
@@ -81,6 +82,8 @@ export interface EgressSettings {
   githubSignIn: boolean;
   githubWebHost: string;
   githubApiHost: string;
+  /** Host of OIDC_ISSUER; null when OIDC sign-in is off. */
+  oidcIssuerHost: string | null;
   /** Event triggers read repository event feeds (GITHUB_EVENT_INGEST_MODE=poll). */
   githubEventPolling: boolean;
   /**
@@ -239,6 +242,28 @@ export function buildEgressInventory(settings: EgressSettings): EgressEntry[] {
       {
         host: settings.githubWebHost,
         purpose: "GitHub sign-in and consent pages, links to cited sources",
+        services: ["browser"],
+        enabledWhen,
+        viaProxy: false,
+      },
+    );
+  }
+  if (settings.oidcIssuerHost) {
+    const enabledWhen = "pingone in AUTH_PROVIDERS";
+    entries.push(
+      {
+        host: settings.oidcIssuerHost,
+        // The discovery document names the other endpoints. An identity
+        // provider that serves them from a second host needs that host too.
+        purpose:
+          "OIDC sign-in: discovery document, signing keys, token exchange, userinfo",
+        services: ["web"],
+        enabledWhen,
+        viaProxy: true,
+      },
+      {
+        host: settings.oidcIssuerHost,
+        purpose: "OIDC sign-in page",
         services: ["browser"],
         enabledWhen,
         viaProxy: false,
@@ -446,6 +471,10 @@ function deploymentEgressSettings(): EgressSettings {
     githubSignIn: enabledAuthProviders().includes("github"),
     githubWebHost: hostOf(GITHUB_WEB_URL),
     githubApiHost: hostOf(GITHUB_API_URL),
+    oidcIssuerHost:
+      OIDC && enabledAuthProviders().includes("pingone")
+        ? hostOf(OIDC.issuer)
+        : null,
     githubEventPolling: GITHUB_EVENT_INGEST_MODE === "poll",
     externalMcpHosts,
     salesforceLoginHost: hostOf(SALESFORCE_LOGIN_URL),
@@ -480,6 +509,7 @@ export const REFERENCE_EGRESS_SETTINGS: EgressSettings = {
   githubSignIn: true,
   githubWebHost: hostOf(DEFAULT_GITHUB.webUrl),
   githubApiHost: hostOf(DEFAULT_GITHUB.apiUrl),
+  oidcIssuerHost: "<OIDC issuer>",
   githubEventPolling: true,
   externalMcpHosts: DEFAULT_GITHUB.mcpUrl
     ? { github: hostOf(DEFAULT_GITHUB.mcpUrl) }

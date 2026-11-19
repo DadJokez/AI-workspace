@@ -8,18 +8,21 @@ interface Props {
   callbackUrl: string;
   /** Enabled provider ids from the AUTH_PROVIDERS allowlist (server-read). */
   providers: string[];
+  /** Label of the OIDC button (server-read); null when OIDC is off. */
+  ssoLabel: string | null;
 }
 
 /**
- * Sign-in methods, driven by the server-side provider allowlist. Magic link
- * is the primary path; GitHub OAuth is the optional secondary.
+ * Sign-in methods, driven by the server-side provider allowlist. Single
+ * sign-on leads when the deployment has it; otherwise magic link is the
+ * primary path and GitHub OAuth the optional secondary.
  *
  * Anti-oracle: after submitting an email we show the SAME neutral "if that
  * address is invited, a link is on its way" state whether the server sent a
  * link or denied the request (AccessDenied) — the form must not reveal which
  * addresses exist or are invited.
  */
-export function LoginForm({ callbackUrl, providers }: Props) {
+export function LoginForm({ callbackUrl, providers, ssoLabel }: Props) {
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [linkState, setLinkState] = useState<"idle" | "sent">("idle");
@@ -27,8 +30,9 @@ export function LoginForm({ callbackUrl, providers }: Props) {
 
   const emailEnabled = providers.includes("email");
   const githubEnabled = providers.includes("github");
+  const ssoEnabled = providers.includes("pingone") && ssoLabel !== null;
 
-  if (!emailEnabled && !githubEnabled) {
+  if (!emailEnabled && !githubEnabled && !ssoEnabled) {
     return (
       <p className="text-center text-sm text-muted">
         Sign-in is not configured. Contact an admin.
@@ -89,6 +93,22 @@ export function LoginForm({ callbackUrl, providers }: Props) {
 
   return (
     <div className="flex flex-col gap-3">
+      {ssoEnabled ? (
+        <button
+          type="button"
+          onClick={() => {
+            setBusy(true);
+            void signIn("pingone", { callbackUrl });
+          }}
+          disabled={busy}
+          className="flex w-full items-center justify-center rounded-md bg-ink px-4 py-2.5 text-sm font-semibold text-canvas hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {ssoLabel}
+        </button>
+      ) : null}
+
+      {ssoEnabled && (emailEnabled || githubEnabled) ? <OrDivider /> : null}
+
       {emailEnabled ? (
         <form onSubmit={requestLink} className="flex flex-col gap-2">
           <label
@@ -117,15 +137,7 @@ export function LoginForm({ callbackUrl, providers }: Props) {
         </form>
       ) : null}
 
-      {emailEnabled && githubEnabled ? (
-        <div className="flex items-center gap-3 py-1">
-          <span className="h-px flex-1 bg-hairline" aria-hidden="true" />
-          <span className="text-2xs uppercase tracking-wide text-muted">
-            or
-          </span>
-          <span className="h-px flex-1 bg-hairline" aria-hidden="true" />
-        </div>
-      ) : null}
+      {emailEnabled && githubEnabled ? <OrDivider /> : null}
 
       {githubEnabled ? (
         <button
@@ -147,6 +159,16 @@ export function LoginForm({ callbackUrl, providers }: Props) {
           {error}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function OrDivider() {
+  return (
+    <div className="flex items-center gap-3 py-1">
+      <span className="h-px flex-1 bg-hairline" aria-hidden="true" />
+      <span className="text-2xs uppercase tracking-wide text-muted">or</span>
+      <span className="h-px flex-1 bg-hairline" aria-hidden="true" />
     </div>
   );
 }

@@ -47,7 +47,7 @@ or through a cascade:
 | Tool consent | `user_tool_attestations`, `mcp_servers` |
 | Sharing | `shares` |
 | Product surface | `notifications`, `recommendations`, `feedback_reports` |
-| Auth material | `verification_tokens`, `invitations` |
+| Auth material | `verification_tokens`, `invitations`, `user_groups` |
 | Ledger | `audit_log` (see the deletion caveat below) |
 
 Outside Postgres: CloudWatch application logs (30-day retention, redacted but

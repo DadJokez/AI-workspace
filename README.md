@@ -69,7 +69,13 @@ pnpm dev          # http://localhost:3000
 | `WEB_SEARCH_PROVIDER` / `BRAVE_SEARCH_API_KEY` | Direct Bedrock web-search provider configuration. The AgentCore lane resolves the same key through AgentCore Identity instead of receiving it as plaintext. |
 | `BRAVE_SEARCH_CREDENTIAL_PROVIDER` | AgentCore Identity API-key provider name; set by the AgentCore CDK stack. |
 | `NEXTAUTH_SECRET` | NextAuth JWT signing secret |
-| `AUTH_PROVIDERS` | Sign-in allowlist, comma-separated. Default `github,email` — magic links (SES) are the universal tester path, GitHub the optional secondary. `pingone` joins the known list at the enterprise OIDC cutover. |
+| `AUTH_PROVIDERS` | Sign-in allowlist, comma-separated. Default `github,email` — magic links (SES) are the universal tester path, GitHub the optional secondary. `pingone` is enterprise OIDC (any OpenID Connect issuer); with it on, nobody becomes admin by signing in first. |
+| `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | Required when `pingone` is in `AUTH_PROVIDERS`: the issuer URL (https; its `/.well-known/openid-configuration` is read) and the confidential client registered for `<NEXTAUTH_URL>/api/auth/callback/pingone`. The secret is server-only. |
+| `OIDC_SCOPES` / `OIDC_GROUPS_CLAIM` / `OIDC_DISPLAY_NAME` | Optional. Scopes requested (default `openid profile email`), the claim listing the user's groups (default `groups`; read from the ID token, then userinfo), and the sign-in button label (default `Single sign-on`). |
+| `OIDC_REQUIRED_GROUP` / `OIDC_ADMIN_GROUP` | Optional group names, matched exactly. With the first set, only members may sign in and a missing or malformed groups claim is refused. With the second set, an OIDC user is an admin exactly while in that group, re-evaluated at every sign-in. |
+| `OIDC_ADOPT_EMAIL_USERS` | `1` lets an OIDC sign-in take over an existing magic-link user with the same address, only when the ID token says `email_verified: true`. Default off: identities are never linked by address. |
+| `MAGIC_LINK_ALLOWED_DOMAINS` / `MAGIC_LINK_SUNSET` | Optional. Comma-separated email domains that may request a magic link (exact match; others get the same neutral answer and no email), and the last day magic links work (`YYYY-MM-DD`, UTC, or a date-time with a zone). |
+| `SESSION_MAX_AGE_SECONDS` / `SESSION_UPDATE_AGE_SECONDS` | Optional. Idle session lifetime (default 86400, allowed 300 to 2592000) and how often the session cookie is re-issued (default 3600, at most the lifetime). |
 | `GITHUB_AUTH_CLIENT_ID` / `GITHUB_AUTH_CLIENT_SECRET` | GitHub OAuth App for sign-in |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Separate GitHub OAuth App for per-user MCP tokens |
 | `GITHUB_WEBHOOK_SECRET` | HMAC secret for signed GitHub repository events; injected into the web task only |

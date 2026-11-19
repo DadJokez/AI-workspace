@@ -9,6 +9,10 @@ import { formatDate } from "@/lib/format-date";
 interface Props {
   initialUsers: AdminUserRow[];
   currentUserId: string;
+  /** Identity-provider group names per user id; absent for users with none. */
+  groupsByUserId: Record<string, string[]>;
+  /** Users whose role the identity provider sets at sign-in. */
+  idpManagedRoleUserIds: string[];
 }
 
 type Role = "admin" | "user";
@@ -37,7 +41,12 @@ function initials(name: string, email: string): string {
     .join("");
 }
 
-export function UsersTable({ initialUsers, currentUserId }: Props) {
+export function UsersTable({
+  initialUsers,
+  currentUserId,
+  groupsByUserId,
+  idpManagedRoleUserIds,
+}: Props) {
   const [rows, setRows] = useState(initialUsers);
   const [busyId, setBusyId] = useState<string | undefined>();
   const [errorId, setErrorId] = useState<string | undefined>();
@@ -104,6 +113,8 @@ export function UsersTable({ initialUsers, currentUserId }: Props) {
             const isSelf = u.id === currentUserId;
             const isBusy = busyId === u.id;
             const hasError = errorId === u.id;
+            const groups = groupsByUserId[u.id] ?? [];
+            const idpManagedRole = idpManagedRoleUserIds.includes(u.id);
             return (
               <tr key={u.id} className="hover:bg-subtle/40">
                 <td className="border-b border-hairline px-6 py-3 align-middle">
@@ -123,6 +134,14 @@ export function UsersTable({ initialUsers, currentUserId }: Props) {
                       <div className="truncate text-xs text-muted">
                         {u.email}
                       </div>
+                      {groups.length > 0 ? (
+                        <div
+                          className="truncate text-2xs text-muted"
+                          title={groups.join(", ")}
+                        >
+                          Groups: {groups.join(", ")}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </td>
@@ -153,13 +172,17 @@ export function UsersTable({ initialUsers, currentUserId }: Props) {
                     <select
                       aria-label={`Role for ${u.displayName}`}
                       value={u.role}
-                      disabled={isBusy || isSelf}
+                      disabled={isBusy || isSelf || idpManagedRole}
                       onChange={(e) =>
                         changeRole(u.id, e.target.value as Role)
                       }
                       className="rounded-md border border-hairline bg-canvas px-2 py-1 text-xs text-ink disabled:cursor-not-allowed disabled:opacity-60"
                       title={
-                        isSelf ? "You can't demote yourself" : undefined
+                        idpManagedRole
+                          ? "Set by this user's identity provider group at sign-in"
+                          : isSelf
+                            ? "You can't demote yourself"
+                            : undefined
                       }
                     >
                       <option value="user">user</option>

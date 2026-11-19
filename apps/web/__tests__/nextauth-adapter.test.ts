@@ -151,4 +151,17 @@ describe("nextauth adapter — DB-free invariants", () => {
       /unlinkAccount/,
     );
   });
+
+  it("linkAccount never writes an OIDC subject (only the sign-in gate does)", async () => {
+    const { adapter } = await loadAdapter();
+    // getDb throws in this harness: the refusal happens before any write.
+    await expect(
+      adapter.linkAccount?.({
+        userId: "11111111-2222-4333-8444-555555555555",
+        provider: "pingone",
+        providerAccountId: "pingone:abc-123",
+        type: "oauth",
+      }),
+    ).rejects.toThrow(/linkAccount refused/);
+  });
 });

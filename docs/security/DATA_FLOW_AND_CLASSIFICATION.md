@@ -70,6 +70,7 @@ flowchart LR
 | Data / flow | Class | Current location | In transit | At rest | Retention / deletion | Egress or processor |
 |---|---|---|---|---|---|---|
 | User identity, email, display name, role, preferences | Confidential | Postgres `users` | HTTPS; DB TLS required | RDS storage encryption is currently disabled | Persists with user; deprovision/purge pending #460 | Browser, SES for sign-in mail |
+| Identity-provider group names per user (OIDC sign-in only) | Confidential | Postgres `user_groups` | HTTPS from the issuer; DB TLS required | RDS storage encryption is currently disabled | Replaced at each OIDC sign-in; deleted with the user | Read back on the admin users page only |
 | JWT session cookie | Restricted | Browser cookie; signed by NextAuth | HTTPS | Browser cookie; no DB session row | Session lifetime / secret rotation | NextAuth application only |
 | Magic-link verification token | Restricted | Hashed token in `verification_tokens` | HTTPS + SES | SHA-256 hash in Postgres; underlying RDS volume unencrypted | Single-use, 15-minute expiry; expired rows swept opportunistically | Amazon SES |
 | Invitation token and recipient | Restricted token; Confidential email | Postgres `invitations` | HTTPS + SES | Plain random invite token in Postgres; underlying RDS volume unencrypted | Expiry/revoke/accept state; row retention pending #460 | Amazon SES |
