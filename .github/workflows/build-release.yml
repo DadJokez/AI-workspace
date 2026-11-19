@@ -5,8 +5,8 @@ name: Build Release
 # digest writes an SBOM, scans it, and signs it with the KMS signing key of
 # infra/terraform/stacks/00-foundation. The last job proposes the release:
 # a pull request that replaces envs/personal-stage/release.auto.tfvars with
-# the five digests. Nothing here deploys; merging that pull request does not
-# either until the apply workflow exists.
+# the five digests. Nothing here deploys; merging that pull request deploys
+# it, through terraform-apply.yml.
 #
 # Production still deploys through CodeBuild (buildspec.yml). This workflow
 # builds beside it and touches nothing it uses.

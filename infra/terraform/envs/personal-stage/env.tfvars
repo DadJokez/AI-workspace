@@ -123,6 +123,12 @@ domain_name = "REPLACE_ME_DOMAIN_NAME"
 # manage_public_edge = true (above).
 certificate_arn = "REPLACE_ME_CERTIFICATE_ARN"
 
+# --- 35-deploy-tasks ---------------------------------------------------------
+
+# Before a release migrates the database, the apply workflow snapshots it
+# (pre-migrate-<sha12>-<run>) and deletes those snapshots older than this.
+snapshot_keep_days = 7
+
 # --- 40-services -------------------------------------------------------------
 
 # One web task, growing to two under load; one task of each worker.

@@ -5,7 +5,7 @@
 #   infra/terraform/check.sh            # every step
 #   infra/terraform/check.sh policy     # one step
 #
-# Steps: fmt, versions, validate, lint, test, policy.
+# Steps: fmt, versions, validate, lint, test, policy, scripts.
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -109,19 +109,29 @@ step_policy() {
   return "$status"
 }
 
-steps=(fmt versions validate lint test policy)
+# The pipeline's scripts in scripts/: each *.test.sh runs its fixtures.
+step_scripts() {
+  local status=0 script
+  for script in scripts/*.test.sh; do
+    echo "== $script"
+    bash "$script" || status=1
+  done
+  return "$status"
+}
+
+steps=(fmt versions validate lint test policy scripts)
 if [ "$#" -gt 0 ]; then
   steps=("$@")
 fi
 
 for step in "${steps[@]}"; do
   case "$step" in
-    fmt | versions | validate | lint | test | policy)
+    fmt | versions | validate | lint | test | policy | scripts)
       echo "### $step"
       "step_$step"
       ;;
     *)
-      echo "check.sh: unknown step '$step' (fmt, versions, validate, lint, test, policy)" >&2
+      echo "check.sh: unknown step '$step' (fmt, versions, validate, lint, test, policy, scripts)" >&2
       exit 2
       ;;
   esac

@@ -1,0 +1,9 @@
+# Paths only the repository owner may approve (docs/roadmap/KOCH_MIGRATION_SPEC.md,
+# WP-15). A review is required from the owner only when branch protection
+# turns on "Require review from Code Owners"; that setting is the owner's.
+
+# Production environments: what runs there and how it is configured.
+/infra/terraform/envs/*-prod/ @DadJokez
+
+# The CI identities: what the pipeline itself may do in AWS.
+/infra/terraform/modules/ci-identity/ @DadJokez

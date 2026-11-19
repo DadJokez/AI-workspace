@@ -33,6 +33,8 @@ locals {
   parameters = {
     "taskdef/migrator_arn" = module.migrator.task_definition_arn
     "taskdef/smoke_arn"    = module.smoke.task_definition_arn
+    # The apply workflow prunes its pre-migrate snapshots by this.
+    "snapshot_keep_days" = tostring(var.snapshot_keep_days)
   }
 }
 
@@ -93,9 +95,9 @@ module "smoke" {
 # --- Published outputs -------------------------------------------------------
 
 # The pipeline reads these to run the tasks. Each ARN carries its revision, so
-# it changes with every release. ARNs, not secrets.
+# it changes with every release. ARNs and a number, not secrets.
 resource "aws_ssm_parameter" "published" {
-  #checkov:skip=CKV2_AWS_34:Task definition ARNs, not secrets; plain String so the pipeline can read them
+  #checkov:skip=CKV2_AWS_34:Task definition ARNs and a day count, not secrets; plain String so the pipeline can read them
   for_each = local.parameters
 
   name  = "/comparative/${var.env}/35-deploy-tasks/${each.key}"

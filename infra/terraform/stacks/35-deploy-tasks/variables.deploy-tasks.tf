@@ -25,3 +25,13 @@ variable "internal_base_url" {
   type        = string
   default     = ""
 }
+
+variable "snapshot_keep_days" {
+  description = "Days the pipeline keeps the pre-migrate-* database snapshots it takes before each release's migrations. Published to SSM for the apply workflow."
+  type        = number
+
+  validation {
+    condition     = var.snapshot_keep_days >= 1 && floor(var.snapshot_keep_days) == var.snapshot_keep_days
+    error_message = "snapshot_keep_days must be a whole number of days, at least 1."
+  }
+}

@@ -78,14 +78,16 @@ variables {
   release_id     = "0123456789abcdef0123456789abcdef01234567"
   image_migrator = "111122223333.dkr.ecr.us-east-1.amazonaws.com/cmp-unit-app@sha256:00000000000000000000000000000000000000000000000000000000000000a1"
   image_worker   = "111122223333.dkr.ecr.us-east-1.amazonaws.com/cmp-unit-app@sha256:00000000000000000000000000000000000000000000000000000000000000a2"
+
+  snapshot_keep_days = 7
 }
 
 run "sandbox" {
   command = plan
 
   assert {
-    condition     = toset(keys(aws_ssm_parameter.published)) == toset(["taskdef/migrator_arn", "taskdef/smoke_arn"])
-    error_message = "the stack publishes the two task definitions the pipeline runs"
+    condition     = toset(keys(aws_ssm_parameter.published)) == toset(["taskdef/migrator_arn", "taskdef/smoke_arn", "snapshot_keep_days"])
+    error_message = "the stack publishes the two task definitions the pipeline runs and how long it keeps its snapshots"
   }
   assert {
     condition = alltrue([
@@ -100,6 +102,10 @@ run "sandbox" {
     )
     error_message = "each parameter holds its task definition's ARN, revision included"
   }
+  assert {
+    condition     = aws_ssm_parameter.published["snapshot_keep_days"].value == "7"
+    error_message = "snapshot_keep_days is published as a whole number"
+  }
 }
 
 # An environment whose application is reached at an internal address.
@@ -109,4 +115,14 @@ run "internal_base_url" {
   variables {
     internal_base_url = "https://internal.app.example.com"
   }
+}
+
+run "snapshot_keep_days_must_be_whole_days" {
+  command = plan
+
+  variables {
+    snapshot_keep_days = 0.5
+  }
+
+  expect_failures = [var.snapshot_keep_days]
 }

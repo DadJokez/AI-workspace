@@ -6,7 +6,7 @@ order: [`docs/roadmap/KOCH_FIREWALL_PLAN.md`](../../docs/roadmap/KOCH_FIREWALL_P
 
 Nothing here is applied by a pull request. A human applies `bootstrap/`, `00-foundation` and, as things
 stand, `20-data` and `30-platform` (see the two sections "What the apply role cannot do" below); the
-pipeline (later work packages) applies the other stacks.
+pipeline applies the other stacks when a change merges (see "Plan, apply, promote").
 
 ## Layout
 
@@ -31,6 +31,7 @@ stacks/40-services/  the four services, SSM outputs
 stacks/60-observability/ the observability module, SSM outputs
 envs/<env>/          backend.hcl, env.tfvars, release.auto.tfvars
 policy/              Conftest rules and their fixtures
+scripts/             what the plan and apply workflows run, each with its fixtures (*.test.sh)
 ```
 
 Apply order for a new environment: `00-foundation`, `10-network`, `20-data`, `30-platform`,
@@ -57,7 +58,8 @@ infra/terraform/tf.sh <env> <stack> <plan|apply|destroy|output> [extra args]
 `tf.sh` runs `terraform init -reconfigure` against `envs/<env>/backend.hcl` with the state key
 `<env>/<stack>.tfstate`, then the command with `envs/<env>/env.tfvars` and
 `envs/<env>/release.auto.tfvars`. It refuses to run while a value in `envs/<env>/` still contains
-`REPLACE_ME`.
+`REPLACE_ME`. `tf.sh <env> <stack> apply <plan file>` applies a plan saved with `plan -out=<plan file>`
+(an absolute path) as it is, without the variable files, which Terraform refuses next to a saved plan.
 
 Every stack reads the same `env.tfvars`; Terraform prints a warning for values a stack does not declare.
 Stacks do not read each other's state: a stack publishes what others need to SSM Parameter Store under
@@ -424,7 +426,9 @@ Neither task role has any AWS permission. The pipeline runs each with `ecs run-t
 with the `deploy_task` security group (both published by `10-network`), using the ARN published here.
 
 **Published to SSM** under `/comparative/<env>/35-deploy-tasks/`: `taskdef/migrator_arn`,
-`taskdef/smoke_arn`. Each ARN carries its revision, so both change with every release.
+`taskdef/smoke_arn` and `snapshot_keep_days`. Each ARN carries its revision, so both change with every
+release. `snapshot_keep_days` (from `env.tfvars`) is how long the apply workflow keeps the
+`pre-migrate-*` database snapshots it takes before a release's migrations.
 
 ## What 40-services creates
 
@@ -611,10 +615,128 @@ no workflow for a pull request opened with the workflow's own `GITHUB_TOKEN`, an
 would then never report. Until the App exists, leave `RELEASE_BOT_CLIENT_ID` unset: the workflow stops
 after uploading the artifact and a human opens the pull request from it.
 
+## Plan, apply, promote
+
+Three workflows move a change from a pull request to an environment. Until the cutover (WP-20) they
+deploy `personal-stage` only; production stays on CodeBuild.
+
+### Plan on pull request
+
+`.github/workflows/terraform-plan.yml` runs on every pull request that touches `infra/terraform/**`.
+`scripts/affected.sh` decides which (environment, stack) pairs the change affects:
+
+| Change | Pairs |
+|---|---|
+| `envs/<e>/release.auto.tfvars` | `<e>` × `35-deploy-tasks`, `50-agentcore`, `40-services` |
+| anything else under `envs/<e>/` | `<e>` × every stack |
+| `stacks/<s>/**` | every environment × `<s>` |
+| `modules/<m>/**` | every environment × every stack that uses `<m>`, directly or through another module |
+| `tf.sh`, `scripts/placeholders.sh` | every pair |
+| documentation, checks, `policy/`, the other scripts, `bootstrap/` | none |
+
+For each pair it assumes `<name_prefix>-tf-plan` and runs `scripts/stack.sh plan`: `tf.sh … plan
+-lock=false -out` (the plan role may not write the state lock), `terraform show -json`, the Conftest rules
+of `policy/`, and `scripts/plan-report.sh`. A plan fails when a rule rejects it, or when it destroys or
+replaces an `aws_db_instance`, `aws_kms_key`, `aws_s3_bucket`, `aws_secretsmanager_secret` or
+`aws_ecr_repository`, unless a human has labelled the pull request `allow-stateful-replace`
+(`scripts/stateful-replace-allowed.sh`: the label counts only if its last application was by a human,
+because the review bot can add labels too). Rob applies that label, then re-runs the failed job.
+
+One comment per environment, updated in place, lists each stack with its totals and a table of adds,
+changes, replacements and destroys by resource type: no values and no addresses, because a `for_each` key
+can be a configuration value (an alert email address, for one). An environment that still has
+`REPLACE_ME` values is not planned, and its comment says so.
+
+A plan that passed every check is uploaded as the artifact `tfplan-<env>-<stack>-<head sha>` (the plan
+file and `report.json` with its fingerprint), kept 30 days. The job `apply role refuses pull requests`
+asks STS for each apply role with the pull request's OIDC token and passes only when STS refuses: that is
+the standing proof that a pull request cannot assume the apply role.
+
+### Apply on merge
+
+`.github/workflows/terraform-apply.yml` runs on every push to `main` that touches `infra/terraform/**`,
+one job per affected environment, in the GitHub environment of that name (the subject the apply role
+trusts) and one at a time per environment (`tf-apply-<env>`, never cancelled). Each job:
+
+1. refuses a commit that does not descend from the last commit deployed successfully to the environment,
+   so re-running an old run cannot roll a newer release back;
+2. for a change that is not only a release, downloads the reviewed plans of the merged pull request (by
+   its head sha, from `terraform-plan.yml` runs only) and checks `allow-stateful-replace` with `main`'s
+   copy of the script;
+3. with the read-only plan role: for a release, verifies that every digest in the release file is
+   signed for its release id and that the id is on `main` (`release-tfvars.sh signed`); for a stack a
+   human applies (`00-foundation`, `20-data`, `30-platform`), checks that nothing is pending. If something
+   is, the job stops before applying anything: apply that stack by hand, together with the affected stacks
+   before it in the apply order, then re-run the job;
+4. with the apply role, applies the stacks in the apply order with `scripts/stack.sh apply`: plan with
+   the state lock, Conftest, then `tf.sh … apply <saved plan>`. A plan that changes nothing is not
+   applied. Any other plan of a stack the merged change touched outside the release file must have the
+   fingerprint of the reviewed plan; a plan that destroys or replaces a stateful resource must also be
+   the reviewed one, with the label. Otherwise the job fails: open a pull request that shows the plan as
+   it is now. A stack only the release touched (`35-deploy-tasks`, `50-agentcore`, `40-services`) is
+   applied on the strength of the signatures;
+5. for a release, around those applies: after `35-deploy-tasks`, `scripts/snapshot-db.sh` when
+   `packages/db/drizzle` changed since the release last deployed successfully (snapshot
+   `pre-migrate-<sha12>-<run>-<attempt>` of `20-data/db/instance_id`, waited for and checked, and the
+   `pre-migrate-*` snapshots of that instance older than `snapshot_keep_days` deleted), then
+   `scripts/run-task.sh <env> migrator`; after `50-agentcore` and `40-services`,
+   `scripts/run-task.sh <env> smoke`. Both tasks run on Fargate in the app subnets with the `deploy_task`
+   security group and no public IP, everything read from SSM, and must exit 0. When the smoke task
+   fails, the job opens a pull request that reverts the merged commit (with the release bot; without it,
+   the job summary says what to revert) and fails. Nothing merges it automatically;
+6. records a GitHub deployment of the commit (task `terraform-apply`, success or failure) whose payload
+   holds the release id, the five images, each stack's plan fingerprint and whether it was applied, the
+   snapshot id, and the migrator and smoke task ARNs with their exit codes; the job summary shows the
+   same JSON. Its environment URL is the base URL of `30-platform`.
+
+GitHub keeps one pending run per concurrency group, so when a third run queues behind a running one, the
+second is cancelled and its changes are applied by no run; drift detection (WP-16) reports them.
+
+Rolling back is a revert of the release pull request: the previous digests are signed for a commit on
+`main`, so the revert deploys like any release. Migrations are expand-only, so the database stays.
+
+### Promotion
+
+`.github/workflows/promote.yml` (run by hand on `main`, inputs `from` and `to`) checks that the latest
+deployment of `from` for the release id in its file succeeded with exactly those images, writes
+`envs/<to>/release.auto.tfvars` with the same id and digests (`release-tfvars.sh promote`), and opens the
+pull request `promote(<to>): <short sha> from <from>` from `release/<to>`, which `release-checks.yml`
+verifies like a release. When `envs/<to>/env.tfvars` sets `production = true`, it first dispatches
+Product Smoke with `run_evals=true` against `from`'s base URL on a temporary branch
+`promote-eval/<release id>` at the release commit, waits for it, and requires its eval and public smoke
+jobs to pass.
+
+### Settings (Rob)
+
+| Kind | Name | Value |
+|---|---|---|
+| Variable | `TF_ROLE_ARNS` | `{"personal-stage": {"plan": "<tf_plan_role_arn>", "apply": "<tf_apply_role_arn>"}}`, outputs of `00-foundation` |
+| Environment | `personal-stage` | no required reviewer; deployment branches: `main` only |
+| Environment | `personal-prod` (WP-20) | required reviewer Rob; deployment branches: `main` only |
+| Label | `allow-stateful-replace` | applied by Rob only |
+| Branch protection | Require review from Code Owners | so that `.github/CODEOWNERS` (`envs/*-prod/`, `modules/ci-identity/`) takes effect |
+
+`RELEASE_SIGNING_KEY_ARN`, `RELEASE_BOT_CLIENT_ID` and `RELEASE_BOT_PRIVATE_KEY` are the ones of "How a
+release is made".
+
+The pipeline needs the filled-in files of `envs/<env>/` committed: an environment with `REPLACE_ME` values
+is neither planned nor applied.
+
+Two things the workflows rely on that are not true yet:
+
+- **The eval gate of a production promotion.** `AWS_EVAL_ROLE_ARN` (today the CDK eval role, later the
+  `evals` role of `modules/ci-identity`) trusts Product Smoke on pull requests and Nightly Evals on `main`,
+  not a dispatched Product Smoke run, so the gate fails closed. Its trust needs a statement for the
+  workflow `Product Smoke` on `ref:refs/heads/promote-eval/*`; that is an IAM decision.
+- **Production verifying stage's signatures.** Images are signed once, with the signing key of the
+  environment that built them. Promoting them to an environment in another account, or with its own key,
+  needs that environment's plan role to read the building environment's key and registry. WP-20 settles
+  this for `personal-prod`.
+
 ## Checks
 
 ```bash
-infra/terraform/check.sh             # fmt, versions, validate, lint, test, policy
+infra/terraform/check.sh             # fmt, versions, validate, lint, test, policy, scripts
 infra/terraform/check.sh policy      # one step
 ```
 
@@ -639,6 +761,14 @@ each followed by its own scripts, `tests/*.sh`:
   check fails if anything but a task definition or a service would change.
 
 A stack's tests supply what earlier stacks publish to SSM, so they need no state either.
+
+The `scripts` step runs the fixtures of the pipeline's scripts, `scripts/*.test.sh`: `affected.sh`
+(which pairs a change plans and applies), `plan-report.sh` (summary, stateful-replace detector and
+fingerprint, against plan JSON in `scripts/fixtures/`), `stack.sh` (what an apply applies and refuses,
+with a stand-in `terraform`) and `stateful-replace-allowed.sh`. `run-task.sh` and `snapshot-db.sh`
+call AWS; their tests are `apps/web/__tests__/terraform-run-task-script.test.ts` and
+`terraform-snapshot-db-script.test.ts`, against a stubbed `aws`, in the unit suite.
+
 `.github/workflows/terraform-ci.yml` runs the same steps plus a Checkov config scan.
 
 ### Policy rules

@@ -2,6 +2,7 @@
 # The one way to run a stack, for humans and the pipeline alike.
 #
 #   infra/terraform/tf.sh <env> <stack> <plan|apply|destroy|output> [extra args]
+#   infra/terraform/tf.sh <env> <stack> apply [args] <saved plan file>
 #
 # It initialises stacks/<stack> against the state of <env> and runs the command
 # with that environment's variable files.
@@ -34,8 +35,7 @@ for file in backend.hcl env.tfvars release.auto.tfvars; do
   [ -f "$env_dir/$file" ] || { echo "tf.sh: missing $env_dir/$file" >&2; exit 2; }
 done
 
-# Comment lines may mention the marker; a value that still carries it may not.
-if grep -n 'REPLACE_ME' "$env_dir/backend.hcl" "$env_dir/env.tfvars" "$env_dir/release.auto.tfvars" | grep -v '^[^:]*:[0-9]*:[[:space:]]*#' >&2; then
+if ! "$root/scripts/placeholders.sh" "$env_dir" >&2; then
   echo "tf.sh: envs/$env_name still has the placeholder values listed above; replace them first." >&2
   exit 2
 fi
@@ -48,6 +48,13 @@ terraform -chdir="$stack_dir" init -input=false -reconfigure \
 
 if [ "$command" = output ]; then
   exec terraform -chdir="$stack_dir" output "$@"
+fi
+
+# `apply <saved plan file>`: the plan already holds every variable, and
+# Terraform refuses -var-file next to a saved plan. Give the file as an
+# absolute path; a relative one is read from the stack directory.
+if [ "$command" = apply ] && [ "$#" -ge 1 ] && [ -f "${*: -1}" ]; then
+  exec terraform -chdir="$stack_dir" apply "$@"
 fi
 
 exec terraform -chdir="$stack_dir" "$command" \

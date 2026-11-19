@@ -1,0 +1,421 @@
+name: Terraform Plan
+
+# Plan on pull request (docs/roadmap/KOCH_MIGRATION_SPEC.md, WP-15). For every
+# (environment, stack) pair a pull request affects, plans the stack against
+# the environment's real state with the read-only plan role, checks the plan
+# with the Conftest rules, and posts one comment per environment that says
+# what would change, by resource type. Values are never shown.
+#
+# Which pairs: infra/terraform/scripts/affected.sh. A plan that would destroy
+# or replace a database, KMS key, bucket, secret or ECR repository fails
+# unless a human (Rob) has labelled the pull request allow-stateful-replace;
+# after adding the label, re-run the failed job.
+#
+# What is uploaded: for a plan that passed every check, the artifact
+# tfplan-<env>-<stack>-<head sha> (the plan file and its report). On merge,
+# terraform-apply.yml re-plans each stack the change touched and refuses to
+# apply a plan whose fingerprint differs from that artifact's.
+#
+# Trust boundary. A pull_request run executes the pull request's code, so it
+# gets only what a pull request may have:
+#   - the plan role `<name_prefix>-tf-plan`, which any ref of this repository
+#     may assume: read-only, no secret values, no object or log contents. It
+#     cannot write the state lock, so plans run with -lock=false;
+#   - never the apply role, which trusts the GitHub environment subject only.
+#     The job `apply role refuses pull requests` proves that on every run: it
+#     asks STS for each apply role with this run's token and passes only when
+#     STS refuses;
+#   - a pull request from a fork gets no OIDC token and a read-only token, so
+#     its plans and comment fail. That is the right answer for a fork.
+# Whatever this run uploads, the apply workflow decides with its own code on
+# main: it re-plans, compares fingerprints, and checks the label itself.
+#
+# An environment whose files still carry REPLACE_ME (infra/terraform/README.md,
+# "Placeholders") is not planned; its comment says so.
+#
+# Repository variable TF_ROLE_ARNS, a JSON object with one entry per
+# environment, from the outputs tf_plan_role_arn and tf_apply_role_arn of
+# 00-foundation:
+#   {"personal-stage": {"plan": "arn:aws:iam::<account>:role/cmp-personal-stage-tf-plan",
+#                       "apply": "arn:aws:iam::<account>:role/cmp-personal-stage-tf-apply"}}
+#
+# Not a required check: the path filter means it does not report on most pull
+# requests, and making it required is Rob's decision.
+on:
+  pull_request:
+    paths:
+      - "infra/terraform/**"
+
+# No workflow-wide grant: each job takes only what it needs.
+permissions: {}
+
+concurrency:
+  group: terraform-plan-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  affected:
+    name: affected stacks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      pairs: ${{ steps.affected.outputs.pairs }}
+      planned: ${{ steps.affected.outputs.planned }}
+      skipped: ${{ steps.affected.outputs.skipped }}
+    steps:
+      # Depth 2: HEAD is GitHub's merge commit of the pull request; the diff
+      # needs both of its parents.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      # The rules decide what is planned, so they are proven on every run.
+      - name: Verify the pipeline scripts
+        run: infra/terraform/check.sh scripts
+
+      - name: Find the affected pairs
+        id: affected
+        run: |
+          set -euo pipefail
+          read -r _merge base head extra <<<"$(git rev-list --parents -n 1 HEAD)"
+          [ -n "${head:-}" ] && [ -z "${extra:-}" ] || {
+            echo "::error::HEAD is not the two-parent merge commit of a pull request"
+            exit 1
+          }
+          git diff --name-only --no-renames -z "$base" HEAD \
+            | infra/terraform/scripts/affected.sh > "$RUNNER_TEMP/affected.tsv"
+          echo "Affected (env, stack, kind):"
+          cat "$RUNNER_TEMP/affected.tsv"
+
+          # An environment that still has placeholders cannot be planned.
+          : > "$RUNNER_TEMP/planned.txt"
+          : > "$RUNNER_TEMP/skipped.txt"
+          while IFS= read -r env_name; do
+            if infra/terraform/scripts/placeholders.sh "infra/terraform/envs/$env_name" > /dev/null; then
+              echo "$env_name" >> "$RUNNER_TEMP/planned.txt"
+            else
+              echo "$env_name" >> "$RUNNER_TEMP/skipped.txt"
+              echo "::notice::envs/$env_name still has placeholder values; it is not planned"
+            fi
+          done < <(cut -f1 "$RUNNER_TEMP/affected.tsv" | sort -u)
+
+          {
+            echo "pairs=$(jq -Rnc --rawfile planned "$RUNNER_TEMP/planned.txt" '
+              ($planned | split("\n") | map(select(. != ""))) as $envs
+              | [inputs | split("\t") | select(.[0] as $e | $envs | index($e)) | {env: .[0], stack: .[1]}]' \
+              < "$RUNNER_TEMP/affected.tsv")"
+            echo "planned=$(jq -Rnc '[inputs | select(. != "")]' < "$RUNNER_TEMP/planned.txt")"
+            echo "skipped=$(jq -Rnc '[inputs | select(. != "")]' < "$RUNNER_TEMP/skipped.txt")"
+          } >> "$GITHUB_OUTPUT"
+
+  plan:
+    name: plan ${{ matrix.env }} ${{ matrix.stack }}
+    needs: affected
+    if: needs.affected.outputs.pairs != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+      # Labels and timeline of this pull request, for allow-stateful-replace.
+      issues: read
+      pull-requests: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.affected.outputs.pairs) }}
+    env:
+      TF_ENV: ${{ matrix.env }}
+      TF_STACK: ${{ matrix.stack }}
+      TF_ROLE_ARNS: ${{ vars.TF_ROLE_ARNS }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      TF_IN_AUTOMATION: "1"
+      TF_INPUT: "0"
+      CHECKPOINT_DISABLE: "1"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Name the outputs
+        run: |
+          {
+            echo "OUT=$RUNNER_TEMP/plan"
+            echo "ARTIFACT_KEY=$TF_ENV-$TF_STACK"
+          } >> "$GITHUB_ENV"
+
+      - name: Resolve the plan role and region
+        id: role
+        run: |
+          set -euo pipefail
+          roles=${TF_ROLE_ARNS:-}
+          [ -n "$roles" ] || roles='{}'
+          arn=$(jq -r --arg e "$TF_ENV" '.[$e].plan // empty' <<<"$roles" 2>/dev/null || true)
+          [[ "$arn" =~ ^arn:aws[a-z-]*:iam::[0-9]{12}:role/cmp-$TF_ENV-tf-plan$ ]] || {
+            echo "::error::TF_ROLE_ARNS has no plan role for $TF_ENV (see the header of terraform-plan.yml)"
+            exit 1
+          }
+          region=$(sed -n 's/^aws_region[[:space:]]*=[[:space:]]*"\([a-z0-9-]*\)"$/\1/p' \
+            "infra/terraform/envs/$TF_ENV/env.tfvars" | head -n 1)
+          [ -n "$region" ] || { echo "::error::envs/$TF_ENV/env.tfvars sets no aws_region"; exit 1; }
+          {
+            echo "role_arn=$arn"
+            echo "region=$region"
+          } >> "$GITHUB_OUTPUT"
+
+      # OIDC only: no long-lived AWS keys. Read-only role.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        with:
+          role-to-assume: ${{ steps.role.outputs.role_arn }}
+          aws-region: ${{ steps.role.outputs.region }}
+          role-session-name: tf-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          mask-aws-account-id: true
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.17.2
+          terraform_wrapper: false
+
+      # Conftest publishes no setup action. Building the pinned version with
+      # the runner's Go toolchain verifies it against the Go checksum database.
+      - name: Setup Conftest
+        run: |
+          go install github.com/open-policy-agent/conftest@v0.71.1
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Plan
+        run: infra/terraform/scripts/stack.sh plan "$TF_ENV" "$TF_STACK" "$OUT"
+
+      # The policy rules and the stateful-replace rule. The label check runs
+      # the base branch's copy of the script, so a pull request cannot bring
+      # its own; the apply workflow checks the label again with main's copy.
+      - name: Check the plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          reasons=()
+          while IFS= read -r message; do
+            [ -n "$message" ] && reasons+=("policy: $message")
+          done < <(jq -r '.policy_failures[]' "$OUT/report.json")
+          if [ "$(jq -r .policy_ok "$OUT/report.json")" != true ] && ((${#reasons[@]} == 0)); then
+            reasons+=("policy: conftest did not produce a result")
+          fi
+
+          if [ "$(jq '.stateful | length' "$OUT/report.json")" != 0 ]; then
+            gate="$RUNNER_TEMP/stateful-replace-allowed.sh"
+            if git show "HEAD^1:infra/terraform/scripts/stateful-replace-allowed.sh" > "$gate" 2>/dev/null; then
+              gh api "repos/$REPO/issues/$PR_NUMBER/labels" --paginate --slurp > "$RUNNER_TEMP/labels.json"
+              gh api "repos/$REPO/issues/$PR_NUMBER/timeline" --paginate --slurp > "$RUNNER_TEMP/timeline.json"
+              decision=$(bash "$gate" "$RUNNER_TEMP/labels.json" "$RUNNER_TEMP/timeline.json")
+            else
+              decision=$'the base branch has no stateful-replace-allowed.sh yet\nallowed=false'
+            fi
+            echo "$decision"
+            if [ "$(tail -n 1 <<<"$decision")" != "allowed=true" ]; then
+              while IFS= read -r address; do
+                reasons+=("destroys or replaces \`$address\` (needs the label allow-stateful-replace, applied by Rob)")
+              done < <(jq -r '.stateful[]' "$OUT/report.json")
+            fi
+          fi
+
+          if ((${#reasons[@]} == 0)); then
+            jq -n --arg env "$TF_ENV" --arg stack "$TF_STACK" '{env: $env, stack: $stack, outcome: "planned", reasons: []}' > "$OUT/result.json"
+          else
+            jq -n --arg env "$TF_ENV" --arg stack "$TF_STACK" '{env: $env, stack: $stack, outcome: "refused", reasons: $ARGS.positional}' \
+              --args "${reasons[@]}" > "$OUT/result.json"
+            printf '::error::%s\n' "${reasons[@]}"
+            exit 1
+          fi
+
+      # The comment job reads these. A run that failed before or during the
+      # plan still reports, so the comment never shows a stale result.
+      - name: Write the report for the comment
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT" "$RUNNER_TEMP/report"
+          if [ ! -f "$OUT/result.json" ]; then
+            jq -n --arg env "$TF_ENV" --arg stack "$TF_STACK" \
+              '{env: $env, stack: $stack, outcome: "failed", reasons: ["the plan failed; see the job log"]}' > "$OUT/result.json"
+          fi
+          cp "$OUT/result.json" "$RUNNER_TEMP/report/result.json"
+          [ ! -f "$OUT/summary.md" ] || cp "$OUT/summary.md" "$RUNNER_TEMP/report/summary.md"
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tfplan-report-${{ env.ARTIFACT_KEY }}
+          path: ${{ runner.temp }}/report/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+      # Only a plan that passed every check is a reviewed plan. Keyed by the
+      # head sha, which is what the apply workflow finds from the merge.
+      - name: Upload the reviewed plan
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tfplan-${{ env.ARTIFACT_KEY }}-${{ env.HEAD_SHA }}
+          path: |
+            ${{ env.OUT }}/plan.tfplan
+            ${{ env.OUT }}/report.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 30
+
+  apply-role-refusal:
+    name: apply role refuses pull requests
+    needs: affected
+    if: needs.affected.outputs.planned != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TF_ROLE_ARNS: ${{ vars.TF_ROLE_ARNS }}
+      PLANNED: ${{ needs.affected.outputs.planned }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # This run's OIDC token has the subject repo:<owner>/<repo>:pull_request.
+      # STS must refuse it for every apply role; anything else fails the job.
+      - name: Ask STS for each apply role with this run's token
+        run: |
+          set -euo pipefail
+          roles=${TF_ROLE_ARNS:-}
+          [ -n "$roles" ] || roles='{}'
+          token=$(curl -sS --fail -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+          echo "::add-mask::$token"
+          status=0
+          echo "### Apply role from a pull request" >> "$GITHUB_STEP_SUMMARY"
+          for env_name in $(jq -r '.[]' <<<"$PLANNED"); do
+            arn=$(jq -r --arg e "$env_name" '.[$e].apply // empty' <<<"$roles" 2>/dev/null || true)
+            # STS answers AccessDenied for a role that does not exist too, so
+            # the ARN must at least be this environment's apply role.
+            if ! [[ "$arn" =~ ^arn:aws[a-z-]*:iam::[0-9]{12}:role/cmp-$env_name-tf-apply$ ]]; then
+              echo "::error::TF_ROLE_ARNS has no apply role for $env_name, so its refusal cannot be shown"
+              status=1
+              continue
+            fi
+            region=$(sed -n 's/^aws_region[[:space:]]*=[[:space:]]*"\([a-z0-9-]*\)"$/\1/p' \
+              "infra/terraform/envs/$env_name/env.tfvars" | head -n 1)
+            if answer=$(aws sts assume-role-with-web-identity --region "${region:-us-east-1}" \
+              --role-arn "$arn" --role-session-name "pull-request-$GITHUB_RUN_ID" \
+              --web-identity-token "$token" --duration-seconds 900 \
+              --query 'AssumedRoleUser.Arn' --output text 2>&1); then
+              echo "::error::$env_name: a pull request assumed the apply role ($answer). Its trust must name the GitHub environment only."
+              status=1
+            elif grep -q 'AccessDenied' <<<"$answer"; then
+              echo "$env_name: refused as required: $answer"
+              # shellcheck disable=SC2016 # the backticks are Markdown, not a command
+              printf --'- `%s`: refused as required:\n\n  ```\n  %s\n  ```\n' "$env_name" "$answer" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::error::$env_name: STS gave an answer that is not a refusal of the trust policy: $answer"
+              status=1
+            fi
+          done
+          exit "$status"
+
+  comment:
+    name: plan comment
+    needs: [affected, plan]
+    if: always() && needs.affected.result == 'success' && (needs.affected.outputs.planned != '[]' || needs.affected.outputs.skipped != '[]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    env:
+      PAIRS: ${{ needs.affected.outputs.pairs }}
+      PLANNED: ${{ needs.affected.outputs.planned }}
+      SKIPPED: ${{ needs.affected.outputs.skipped }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Download the reports
+        if: needs.affected.outputs.pairs != '[]'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: tfplan-report-*
+          path: ${{ runner.temp }}/reports
+
+      # One comment per environment, updated in place: the marker on its first
+      # line finds it again. The reports hold counts by resource type, rule
+      # messages and addresses of stateful resources, never values.
+      - name: Post or update the comments
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          reports="$RUNNER_TEMP/reports"
+          for env_name in $(jq -r '.[]' <<<"$PLANNED") $(jq -r '.[]' <<<"$SKIPPED"); do
+            marker="<!-- terraform-plan:$env_name -->"
+            body="$RUNNER_TEMP/body-$env_name.md"
+            {
+              echo "$marker"
+              echo "### Terraform plan: \`$env_name\`"
+              echo
+              echo "Head \`${HEAD_SHA:0:7}\`, [run]($RUN_URL). Planned with the read-only plan role and no state lock; values are not shown."
+              echo
+              if jq -e --arg e "$env_name" 'index($e) != null' <<<"$SKIPPED" > /dev/null; then
+                echo "**Not planned:** \`infra/terraform/envs/$env_name\` still has placeholder values (\`REPLACE_ME\`)."
+              else
+                echo "| Stack | Result |"
+                echo "|---|---|"
+                for stack in $(jq -r --arg e "$env_name" '.[] | select(.env == $e) | .stack' <<<"$PAIRS"); do
+                  dir="$reports/tfplan-report-$env_name-$stack"
+                  if [ ! -f "$dir/result.json" ]; then
+                    echo "| \`$stack\` | **no result**: the job stopped before reporting; see the run |"
+                    continue
+                  fi
+                  outcome=$(jq -r .outcome "$dir/result.json")
+                  totals=$(head -n 1 "$dir/summary.md" 2>/dev/null || true)
+                  case "$outcome" in
+                    planned) echo "| \`$stack\` | ${totals:-planned} |" ;;
+                    refused) echo "| \`$stack\` | **refused**: $(jq -r '.reasons | join("; ")' "$dir/result.json" | tr '|' '/') |" ;;
+                    *) echo "| \`$stack\` | **plan failed**; see the run |" ;;
+                  esac
+                done
+                for stack in $(jq -r --arg e "$env_name" '.[] | select(.env == $e) | .stack' <<<"$PAIRS"); do
+                  summary="$reports/tfplan-report-$env_name-$stack/summary.md"
+                  if [ -f "$summary" ] && [ "$(wc -l < "$summary")" -gt 1 ]; then
+                    echo
+                    echo "<details><summary><code>$stack</code> by resource type</summary>"
+                    echo
+                    tail -n +3 "$summary"
+                    echo
+                    echo "</details>"
+                  fi
+                done
+              fi
+            } > "$body"
+
+            gh api "repos/$GH_REPO/issues/$PR_NUMBER/comments" --paginate --slurp > "$RUNNER_TEMP/comments.json"
+            existing=$(jq -r --arg marker "$marker" \
+              '[.[][] | select(.user.login == "github-actions[bot]" and (.body | startswith($marker)))][0].id // empty' \
+              "$RUNNER_TEMP/comments.json")
+            if [ -n "$existing" ]; then
+              jq -n --rawfile body "$body" '{body: $body}' \
+                | gh api -X PATCH "repos/$GH_REPO/issues/comments/$existing" --input - > /dev/null
+              echo "updated the comment for $env_name"
+            else
+              jq -n --rawfile body "$body" '{body: $body}' \
+                | gh api "repos/$GH_REPO/issues/$PR_NUMBER/comments" --input - > /dev/null
+              echo "posted the comment for $env_name"
+            fi
+          done

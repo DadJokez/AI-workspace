@@ -1,0 +1,33 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.17.2",
+  "timestamp": "2026-11-19T10:00:00Z",
+  "resource_changes": [
+    {
+      "address": "module.data.aws_db_instance.this",
+      "module_address": "module.data",
+      "mode": "managed",
+      "type": "aws_db_instance",
+      "name": "this",
+      "change": {
+        "actions": ["no-op"],
+        "before": { "identifier": "cmp-unit-db" },
+        "after": { "identifier": "cmp-unit-db" },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "data.aws_ssm_parameter.base_url",
+      "mode": "data",
+      "type": "aws_ssm_parameter",
+      "name": "base_url",
+      "change": {
+        "actions": ["read"],
+        "before": null,
+        "after": { "insecure_value": "https://app.example.com" },
+        "after_unknown": {}
+      }
+    }
+  ],
+  "output_changes": {}
+}
