@@ -3,6 +3,8 @@ import {
   chatMessages,
   chatThreads,
   createDb,
+  feedbackReports,
+  notifications,
   runEvents,
   runs,
   skills,
@@ -21,7 +23,8 @@ import { collectText } from "../__tests__/helpers/collect-text";
  * cross-user access dies at the scope predicate.
  *
  * The #445 regression (admin writing into another user's thread via the
- * read-side scope helper) is pinned here explicitly.
+ * read-side scope helper) is pinned here explicitly, and since WP-18 every
+ * `userScope()` caller gives an admin the same answer it gives a user.
  */
 
 const DB_URL = process.env.DATABASE_URL;
@@ -329,13 +332,158 @@ suite("cross-user scoping (real Postgres, real handlers)", () => {
     }
   });
 
-  it("admin READ visibility on threads remains (intentional product behavior)", async () => {
-    const { GET } = await import("@/app/api/threads/[id]/route");
-    currentUser = seeded.admin;
-    const res = await GET(new Request("http://test.local"), {
-      params: Promise.resolve({ id: seeded.aliceThreadId }),
+  /**
+   * WP-18: `userScope()` scopes admins like everyone else. Each of its eight
+   * callers gives an admin who asks for Alice's resource exactly what Bob,
+   * an ordinary user, gets: the same status and the same body. Reading
+   * another user's data is an explicit admin route with a reason
+   * (audit.integration.test.ts, the trace route).
+   */
+  describe("admins are scoped like everyone else (WP-18)", () => {
+    async function asBobAndAdmin(
+      call: () => Promise<Response>,
+    ): Promise<{ status: number; body: string }[]> {
+      const results: { status: number; body: string }[] = [];
+      for (const user of [seeded.bob, seeded.admin]) {
+        currentUser = user;
+        const res = await call();
+        results.push({ status: res.status, body: await res.text() });
+      }
+      expect(results[1]).toEqual(results[0]);
+      return results;
+    }
+
+    async function aliceRun() {
+      const [run] = await db
+        .insert(runs)
+        .values({
+          userId: seeded.alice.id,
+          threadId: seeded.aliceThreadId,
+          skillSlug: "chat-turn",
+          status: "running",
+        })
+        .returning();
+      return run!;
+    }
+
+    it("thread list (GET /api/threads)", async () => {
+      const { GET } = await import("@/app/api/threads/route");
+      const [, asAdmin] = await asBobAndAdmin(() =>
+        GET(new Request("http://test.local/api/threads?limit=50")),
+      );
+      expect(asAdmin!.status).toBe(200);
+      expect(JSON.parse(asAdmin!.body)).toEqual({ threads: [] });
     });
-    expect(res.status).toBe(200);
+
+    it("thread detail (GET /api/threads/[id])", async () => {
+      const { GET } = await import("@/app/api/threads/[id]/route");
+      const [, asAdmin] = await asBobAndAdmin(() =>
+        GET(new Request("http://test.local"), {
+          params: Promise.resolve({ id: seeded.aliceThreadId }),
+        }),
+      );
+      expect(asAdmin!.status).toBe(404);
+      expect(asAdmin!.body).not.toContain("alice's secret question");
+    });
+
+    it("thread messages (GET /api/threads/[id]/messages)", async () => {
+      const { GET } = await import("@/app/api/threads/[id]/messages/route");
+      const [, asAdmin] = await asBobAndAdmin(() =>
+        GET(new Request("http://test.local"), {
+          params: Promise.resolve({ id: seeded.aliceThreadId }),
+        }),
+      );
+      expect(asAdmin!.status).toBe(404);
+    });
+
+    it("thread export (GET /api/threads/[id]/export)", async () => {
+      const { GET } = await import("@/app/api/threads/[id]/export/route");
+      const [, asAdmin] = await asBobAndAdmin(() =>
+        GET(new Request("http://test.local"), {
+          params: Promise.resolve({ id: seeded.aliceThreadId }),
+        }),
+      );
+      expect(asAdmin!.status).toBe(404);
+    });
+
+    it("chat send into the thread (POST /api/chat)", async () => {
+      const { POST } = await import("@/app/api/chat/route");
+      const [, asAdmin] = await asBobAndAdmin(() =>
+        POST(
+          new Request("http://test.local/api/chat", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              message: "reading alice's thread",
+              threadId: seeded.aliceThreadId,
+            }),
+          }),
+        ),
+      );
+      expect(asAdmin!.status).toBe(404);
+    });
+
+    it("feedback citing the thread, run and artifact (POST /api/feedback)", async () => {
+      const { POST } = await import("@/app/api/feedback/route");
+      const run = await aliceRun();
+      // The thread is refused outright...
+      const [, threadAsAdmin] = await asBobAndAdmin(() =>
+        POST(
+          new Request("http://test.local/api/feedback", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              body: "something broke",
+              context: { threadId: seeded.aliceThreadId },
+            }),
+          }),
+        ),
+      );
+      expect(threadAsAdmin!.status).toBe(404);
+
+      // ...and a cited run or artifact is dropped from the stored report.
+      currentUser = seeded.admin;
+      const res = await POST(
+        new Request("http://test.local/api/feedback", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            body: "something else broke",
+            context: { runId: run.id, artifactId: seeded.aliceArtifactId },
+          }),
+        }),
+      );
+      expect(res.status).toBeLessThan(300);
+      const stored = await db
+        .select({ runId: feedbackReports.runId, artifactId: feedbackReports.artifactId })
+        .from(feedbackReports)
+        .where(eq(feedbackReports.userId, seeded.admin.id));
+      expect(stored).toEqual([{ runId: null, artifactId: null }]);
+    });
+
+    it("run status poll (GET /api/runs/[id]/status)", async () => {
+      const { GET } = await import("@/app/api/runs/[id]/status/route");
+      const run = await aliceRun();
+      const [, asAdmin] = await asBobAndAdmin(() =>
+        GET(new Request("http://test.local"), {
+          params: Promise.resolve({ id: run.id }),
+        }),
+      );
+      expect(asAdmin!.status).toBe(404);
+    });
+
+    it("notifications (GET /api/notifications, lib/notifications.ts)", async () => {
+      const { GET } = await import("@/app/api/notifications/route");
+      await db.insert(notifications).values({
+        userId: seeded.alice.id,
+        type: "run_succeeded",
+        title: "alice's private run finished",
+        threadId: seeded.aliceThreadId,
+      });
+      const [, asAdmin] = await asBobAndAdmin(() => GET());
+      expect(asAdmin!.status).toBe(200);
+      expect(asAdmin!.body).not.toContain("alice's private run finished");
+    });
   });
 
   it("artifact download is denied cross-user", async () => {

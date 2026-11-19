@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 const FOCUSABLE_SELECTOR =
@@ -13,6 +13,10 @@ interface DestructiveConfirmDialogProps {
   actionLabel: string;
   errorMessage?: string | null;
   busy?: boolean;
+  /** Extra content under the description, such as a reason field. */
+  children?: ReactNode;
+  /** Keeps the action button off until the content above is complete. */
+  confirmDisabled?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }
@@ -24,6 +28,8 @@ export function DestructiveConfirmDialog({
   actionLabel,
   errorMessage = null,
   busy = false,
+  children,
+  confirmDisabled = false,
   onCancel,
   onConfirm,
 }: DestructiveConfirmDialogProps) {
@@ -104,6 +110,7 @@ export function DestructiveConfirmDialog({
         <p id={descriptionId} className="mt-2 text-sm text-muted">
           {description}
         </p>
+        {children}
         {errorMessage ? (
           <div
             role="alert"
@@ -125,7 +132,7 @@ export function DestructiveConfirmDialog({
           <button
             type="button"
             onClick={onConfirm}
-            disabled={busy}
+            disabled={busy || confirmDisabled}
             className="rounded-md border border-danger bg-danger-bg px-3 py-1.5 text-sm font-medium text-danger hover:bg-danger/10 disabled:cursor-wait disabled:opacity-60"
           >
             {busy ? `${actionLabel}...` : actionLabel}

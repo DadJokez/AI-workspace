@@ -67,13 +67,22 @@ export async function cancelRun({
   db,
   actor,
   runId,
+  ownerUserId,
+  error = "Canceled by user.",
 }: {
   db: Database;
   actor: SessionUser;
   runId: string;
+  /**
+   * Server-side callers acting on one user's runs (the user lifecycle): the
+   * run must belong to this user, whatever the actor's role. Never set from
+   * request input.
+   */
+  ownerUserId?: string;
+  /** Stored as the run's error and the canceled event's text. */
+  error?: string;
 }): Promise<CancelRunResult> {
   const now = new Date();
-  const error = "Canceled by user.";
   // One FOR UPDATE transaction so a cancel serializes against
   // persistAssistantMessageOnce: it can no longer land between the status
   // read and the canceled write and disown a committed answer (#655).
@@ -88,7 +97,11 @@ export async function cancelRun({
       const rows = await tx
         .select()
         .from(runs)
-        .where(authorizedRunScope(actor, runId))
+        .where(
+          ownerUserId
+            ? and(eq(runs.id, runId), eq(runs.userId, ownerUserId))
+            : authorizedRunScope(actor, runId),
+        )
         .limit(1)
         .for("update");
       const run = rows[0];

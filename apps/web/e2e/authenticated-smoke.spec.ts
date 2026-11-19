@@ -1,8 +1,8 @@
 import { createHmac, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { getDb } from "@ai-workspace/db";
+import { getDb, users } from "@ai-workspace/db";
 import { expect, test, type Page } from "@playwright/test";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { findTokenShapedContent } from "../__tests__/helpers/token-shapes";
 import { authSmokeUser, installAuthSmokeSession } from "./helpers/auth";
 import {
@@ -778,6 +778,79 @@ test.describe("authenticated product smoke", () => {
     expect(revokeResponse.ok()).toBe(true);
     await expect(row).toContainText("revoked");
     await expect(row.getByRole("button", { name: "Resend" })).toBeDisabled();
+  });
+
+  test("suspends and reactivates a user from the admin users table (WP-18)", async ({
+    page,
+  }) => {
+    const db = getDb();
+    const email = `suspend-${Date.now()}@example.com`;
+    const [target] = await db
+      .insert(users)
+      .values({
+        pingSubject: `email:${email}`,
+        email,
+        displayName: "Suspend Smoke",
+        role: "user",
+      })
+      .returning({ id: users.id });
+    try {
+      await page.goto("/admin");
+      const row = page.locator("tr").filter({ hasText: email });
+      await expect(row.getByTestId(`user-status-${target!.id}`)).toHaveText(
+        "active",
+      );
+      // No status actions on the signed-in admin's own row.
+      await expect(
+        page
+          .locator("tr")
+          .filter({ hasText: authSmokeUser.email })
+          .getByRole("button", { name: /^Suspend / }),
+      ).toHaveCount(0);
+
+      await row.getByRole("button", { name: "Suspend Suspend Smoke" }).click();
+      const dialog = page.getByRole("alertdialog");
+      await expect(dialog).toContainText("Signs them out everywhere");
+      await expect(dialog).toContainText("cancels their queued and running runs");
+      const confirm = dialog.getByRole("button", { name: "Suspend" });
+      await expect(confirm).toBeDisabled();
+      await dialog.getByLabel(/Reason/).fill("Smoke test suspension");
+      const [suspendResponse] = await Promise.all([
+        page.waitForResponse(
+          (response) =>
+            response.url().endsWith(`/api/admin/users/${target!.id}/status`) &&
+            response.request().method() === "POST",
+        ),
+        confirm.click(),
+      ]);
+      expect(suspendResponse.status()).toBe(200);
+      await expect(dialog).toHaveCount(0);
+      await expect(row.getByTestId(`user-status-${target!.id}`)).toHaveText(
+        "suspended",
+      );
+      const [suspended] = await db
+        .select({
+          status: users.status,
+          sessionVersion: users.sessionVersion,
+          statusReason: users.statusReason,
+        })
+        .from(users)
+        .where(eq(users.id, target!.id));
+      expect(suspended).toEqual({
+        status: "suspended",
+        sessionVersion: 1,
+        statusReason: "Smoke test suspension",
+      });
+
+      await row.getByRole("button", { name: "Reactivate Suspend Smoke" }).click();
+      await dialog.getByLabel(/Reason/).fill("Smoke test reactivation");
+      await dialog.getByRole("button", { name: "Reactivate" }).click();
+      await expect(row.getByTestId(`user-status-${target!.id}`)).toHaveText(
+        "active",
+      );
+    } finally {
+      await db.delete(users).where(eq(users.id, target!.id));
+    }
   });
 
   test("keeps admin feedback rows in sync with URL filters", async ({

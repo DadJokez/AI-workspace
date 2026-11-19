@@ -157,6 +157,10 @@ export const mcpServerStatusEnum = pgEnum("mcp_server_status", [
 
 export type McpServerStatus = (typeof mcpServerStatusEnum.enumValues)[number];
 
+export const USER_STATUSES = ["active", "suspended", "deprovisioned"] as const;
+
+export type UserStatus = (typeof USER_STATUSES)[number];
+
 export const users = pgTable(
   "users",
   {
@@ -166,9 +170,11 @@ export const users = pgTable(
     displayName: text("display_name").notNull(),
     /**
      * Coarse permission tier. The first user ever to sign in is promoted to
-     * `admin`; everyone else defaults to `user`. Admins bypass per-user
-     * scoping on threads/messages/usage queries; users see only their own
-     * rows. Assigned in the sign-in path (`ensureUser`). For OIDC users with
+     * `admin`; everyone else defaults to `user`. Admins reach the admin
+     * pages; their personal surfaces are scoped to their own rows exactly
+     * like a user's, and another user's data is read only through explicit,
+     * reason-bearing admin routes. Assigned in the sign-in path
+     * (`ensureUser`). For OIDC users with
      * OIDC_ADMIN_GROUP set, the identity provider's groups claim decides it
      * at every sign-in instead.
      */
@@ -210,6 +216,22 @@ export const users = pgTable(
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /**
+     * Lifecycle state (`users_status_check` in migration 0056). Only an
+     * `active` user may hold a session, sign in, or have runs executed.
+     * Changed only through `apps/web/lib/user-lifecycle.ts`; nothing is
+     * deleted when an account leaves `active`.
+     */
+    status: text("status", { enum: USER_STATUSES }).notNull().default("active"),
+    /**
+     * Stamped into the JWT at sign-in (`sv`). Suspend and deprovision bump
+     * it, so every token issued before the change stops matching the row.
+     */
+    sessionVersion: integer("session_version").notNull().default(0),
+    /** When `status` last changed; NULL while it never has. */
+    statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
+    /** The admin's reason for the last status change. */
+    statusReason: text("status_reason"),
   },
   (t) => ({
     pingSubjectUnique: uniqueIndex("users_ping_subject_idx").on(t.pingSubject),

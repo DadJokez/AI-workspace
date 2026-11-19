@@ -30,7 +30,11 @@ const STATUS_FILTERS = [
   "started",
 ] as const;
 const PROVIDER_FILTERS = ["all", "github", "ai-hub"] as const;
-const ACTION_FILTERS = ["all", "admin_data_access"] as const;
+const ACTION_FILTERS = [
+  "all",
+  "admin.user_data_access",
+  "admin_data_access",
+] as const;
 
 interface Props {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -143,6 +147,12 @@ export default async function AdminAuditPage({ searchParams }: Props) {
           active={status === "all" && provider === "all" && action === "all"}
         >
           All
+        </FilterPill>
+        <FilterPill
+          href="/admin/audit?action=admin.user_data_access"
+          active={action === "admin.user_data_access"}
+        >
+          User data opened
         </FilterPill>
         <FilterPill
           href="/admin/audit?action=admin_data_access"
@@ -314,7 +324,7 @@ function formatAction(actionType: string): string {
   if (actionType === "mcp_tool_attestation") return "Tool attestation";
   if (actionType === "rate_limit") return "Rate limit";
   return actionType
-    .split(/[_-]+/)
+    .split(/[._-]+/)
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");

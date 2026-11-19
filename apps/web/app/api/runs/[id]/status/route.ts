@@ -1,10 +1,6 @@
 import { getDb, runEvents, runs } from "@ai-workspace/db";
 import { and, eq, max } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import {
-  adminDataAccessJustification,
-  auditAdminDataAccess,
-} from "@/lib/admin-data-access";
 import { requireSession } from "@/lib/auth/requireSession";
 import { userScope } from "@/lib/auth/scope";
 import { liveTokenTotalFromRunOutput } from "@/lib/run-poll";
@@ -19,11 +15,10 @@ export const dynamic = "force-dynamic";
  * refetching the full thread (messages + events + artifact content) on
  * every tick.
  *
- * `role = 'user'`  → only runs the caller owns.
- * `role = 'admin'` → any run (read-side parity with the thread routes).
+ * Only runs the caller owns, for every role (parity with the thread routes).
  */
 export async function GET(
-  req: Request,
+  _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const session = await requireSession();
@@ -40,7 +35,6 @@ export async function GET(
   const runRows = await db
     .select({
       id: runs.id,
-      userId: runs.userId,
       status: runs.status,
       outputs: runs.outputs,
       updatedAt: runs.updatedAt,
@@ -52,19 +46,6 @@ export async function GET(
   if (!run) {
     return NextResponse.json({ error: "run_not_found" }, { status: 404 });
   }
-
-  await auditAdminDataAccess({
-    db,
-    actor: sessionUser,
-    access: {
-      targetUserId: run.userId,
-      resourceType: "run",
-      resourceId: run.id,
-      surface: "run_status",
-      justification: adminDataAccessJustification(req),
-      runId: run.id,
-    },
-  });
 
   // (run_id, sequence) is index-covered — this is the cheap cursor read.
   const eventRows = await db

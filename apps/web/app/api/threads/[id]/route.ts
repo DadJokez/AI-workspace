@@ -2,10 +2,6 @@ import { UnauthorizedError } from "@ai-workspace/auth";
 import { chatThreads, getDb } from "@ai-workspace/db";
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import {
-  adminDataAccessJustification,
-  auditAdminDataAccess,
-} from "@/lib/admin-data-access";
 import { requireSession } from "@/lib/auth/requireSession";
 import { userScope } from "@/lib/auth/scope";
 import { loadThreadMessagesWithRunActivity } from "@/lib/thread-messages";
@@ -16,8 +12,12 @@ import {
 
 export const dynamic = "force-dynamic";
 
+/**
+ * GET /api/threads/[id] — a thread the caller owns, with its messages. Owner
+ * only for every role: another user's thread, admin or not, is a 404.
+ */
 export async function GET(
-  req: Request,
+  _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
@@ -40,19 +40,6 @@ export async function GET(
     if (!owned[0]) {
       return NextResponse.json({ error: "thread_not_found" }, { status: 404 });
     }
-
-    await auditAdminDataAccess({
-      db,
-      actor: sessionUser,
-      access: {
-        targetUserId: owned[0].userId,
-        resourceType: "chat_thread",
-        resourceId: owned[0].id,
-        surface: "thread_detail",
-        justification: adminDataAccessJustification(req),
-        chatThreadId: owned[0].id,
-      },
-    });
 
     const [messages, lineage, alternatives] = await Promise.all([
       loadThreadMessagesWithRunActivity({
@@ -82,8 +69,7 @@ const MAX_TITLE_LEN = 200;
 
 /**
  * Update owner-controlled thread metadata. Exactly one field is accepted:
- * `{ title: string }` or `{ pinned: boolean }`. Admins can read workspace
- * threads elsewhere, but personal mutations never cross user boundaries.
+ * `{ title: string }` or `{ pinned: boolean }`. Owner only, for every role.
  */
 export async function PATCH(
   req: Request,
@@ -168,9 +154,9 @@ export async function PATCH(
 }
 
 /**
- * Thread deletion stays scoped to the owner regardless of role — admin sees
- * everything (read), but moderation-style cross-user deletes belong in a
- * separate admin endpoint with audit logging, not here.
+ * Thread deletion is scoped to the owner regardless of role. Moderation-style
+ * cross-user deletes would belong in a separate admin endpoint with audit
+ * logging, not here.
  */
 export async function DELETE(
   _req: Request,

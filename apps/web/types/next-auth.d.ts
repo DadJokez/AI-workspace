@@ -8,6 +8,8 @@ declare module "next-auth" {
       email: string;
       displayName: string;
       role: UserRole;
+      /** `users.session_version` when the session's JWT was issued. */
+      sessionVersion?: number;
     } & DefaultSession["user"];
   }
 }
@@ -17,5 +19,10 @@ declare module "next-auth/jwt" {
     ghSub?: string;
     userId?: string;
     role?: UserRole;
+    /**
+     * `users.session_version` at sign-in. Never refreshed afterwards: a
+     * suspension bumps the row, and `getSessionUser` refuses the mismatch.
+     */
+    sv?: number;
   }
 }

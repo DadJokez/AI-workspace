@@ -664,8 +664,6 @@ export async function loadThreadAlternativeLinks({
   threadId: string;
   actor: Pick<SessionUser, "id" | "role">;
 }): Promise<ThreadAlternativeLink[]> {
-  const ownerScope =
-    actor.role === "admin" ? undefined : eq(chatThreads.userId, actor.id);
   const rows = await db
     .select({
       threadId: chatThreadBranches.threadId,
@@ -676,9 +674,10 @@ export async function loadThreadAlternativeLinks({
     .from(chatThreadBranches)
     .innerJoin(chatThreads, eq(chatThreads.id, chatThreadBranches.threadId))
     .where(
-      ownerScope
-        ? and(eq(chatThreadBranches.parentThreadId, threadId), ownerScope)
-        : eq(chatThreadBranches.parentThreadId, threadId),
+      and(
+        eq(chatThreadBranches.parentThreadId, threadId),
+        eq(chatThreads.userId, actor.id),
+      ),
     )
     .orderBy(desc(chatThreadBranches.createdAt));
   return rows.map((row) => ({
@@ -947,14 +946,6 @@ async function loadAuthorizedArtifact({
   actor: Pick<SessionUser, "id" | "role">;
   artifactId: string;
 }): Promise<WorkspaceArtifact | null> {
-  if (actor.role === "admin") {
-    const rows = await db
-      .select()
-      .from(workspaceArtifacts)
-      .where(eq(workspaceArtifacts.id, artifactId))
-      .limit(1);
-    return rows[0] ?? null;
-  }
   const access = await resolveArtifactReviewAccess({ db, actor, artifactId });
   return access?.artifact ?? null;
 }
@@ -1000,7 +991,7 @@ async function loadBranchResourceAvailability({
       result.set(id, { status: "unavailable" });
       continue;
     }
-    if (actor.role === "admin" || row.userId === actor.id) {
+    if (row.userId === actor.id) {
       result.set(id, {
         status: "available",
         artifactId: row.id,

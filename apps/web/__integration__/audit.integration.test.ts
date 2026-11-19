@@ -5,6 +5,7 @@ import {
   chatMessages,
   chatThreads,
   createDb,
+  runs,
   schedules,
   skills,
   users,
@@ -271,51 +272,78 @@ suite("audit completeness (real Postgres, real handlers)", () => {
     expect(JSON.stringify(revocationRows[0])).not.toContain("super-secret-token");
   });
 
-  it("audits and deduplicates an admin reading another user's thread", async () => {
+  it("WP-18: an admin opens another user's run trace only with a reason, recorded first", async () => {
+    const [run] = await db
+      .insert(runs)
+      .values({
+        userId: alice.id,
+        threadId: aliceThreadId,
+        skillSlug: "chat-turn",
+        status: "succeeded",
+        inputs: { prompt: "alice's private prompt" },
+      })
+      .returning();
+    const { GET } = await import("@/app/api/admin/runs/[id]/trace/route");
+    const open = (reason?: string) =>
+      GET(
+        new Request(
+          `http://test.local/api/admin/runs/${run!.id}/trace${
+            reason === undefined ? "" : `?reason=${encodeURIComponent(reason)}`
+          }`,
+        ),
+        { params: Promise.resolve({ id: run!.id }) },
+      );
     currentUser = admin;
-    const { GET } = await import("@/app/api/threads/[id]/route");
-    const request = new Request(
-      `http://test.local/api/threads/${aliceThreadId}`,
-      {
-        headers: {
-          "x-admin-access-justification": "Support investigation",
+
+    const refused = await open();
+    expect(refused.status).toBe(400);
+    expect(await refused.text()).not.toContain("alice's private prompt");
+    expect(await auditRows("admin.user_data_access", admin.id)).toHaveLength(0);
+    expect(await auditRows("run_trace_viewed", admin.id)).toHaveLength(0);
+
+    const first = await open("Support investigation");
+    const repeat = await open("Support investigation");
+    const otherReason = await open("Incident 77 follow-up");
+    expect([first.status, repeat.status, otherReason.status]).toEqual([
+      200, 200, 200,
+    ]);
+    expect(await first.text()).toContain("alice's private prompt");
+
+    const rows = await auditRows("admin.user_data_access", admin.id);
+    // The repeat poll with the same reason inside the window is one row; a
+    // new reason is a new row.
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => row.metadata)).toEqual(
+      expect.arrayContaining([
+        {
+          schema: "admin-data-access.v1",
+          targetUserId: alice.id,
+          resourceType: "run",
+          resourceId: run!.id,
+          surface: "run_inspector",
+          justification: "Support investigation",
         },
-      },
+        expect.objectContaining({ justification: "Incident 77 follow-up" }),
+      ]),
     );
-
-    const first = await GET(request, {
-      params: Promise.resolve({ id: aliceThreadId }),
-    });
-    const second = await GET(request, {
-      params: Promise.resolve({ id: aliceThreadId }),
-    });
-    expect(first.status).toBe(200);
-    expect(second.status).toBe(200);
-
-    const rows = await auditRows("admin_data_access", admin.id);
-    expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       actorUserId: admin.id,
-      chatThreadId: aliceThreadId,
+      runId: run!.id,
       status: "succeeded",
       provider: "ai-hub",
-      metadata: {
-        schema: "admin-data-access.v1",
-        targetUserId: alice.id,
-        resourceType: "chat_thread",
-        resourceId: aliceThreadId,
-        surface: "thread_detail",
-        justification: "Support investigation",
-      },
     });
 
-    currentUser = alice;
-    const ownerResponse = await GET(
-      new Request(`http://test.local/api/threads/${aliceThreadId}`),
-      { params: Promise.resolve({ id: aliceThreadId }) },
+    // Their own run needs no reason and writes no cross-user row.
+    const [own] = await db
+      .insert(runs)
+      .values({ userId: admin.id, skillSlug: "chat-turn", status: "succeeded" })
+      .returning();
+    const ownResponse = await GET(
+      new Request(`http://test.local/api/admin/runs/${own!.id}/trace`),
+      { params: Promise.resolve({ id: own!.id }) },
     );
-    expect(ownerResponse.status).toBe(200);
-    expect(await auditRows("admin_data_access", alice.id)).toHaveLength(0);
+    expect(ownResponse.status).toBe(200);
+    expect(await auditRows("admin.user_data_access", admin.id)).toHaveLength(2);
   });
 
   it("audits the user message on a chat send (real route, denied before model)", async () => {

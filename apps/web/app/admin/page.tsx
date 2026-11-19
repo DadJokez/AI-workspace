@@ -27,6 +27,9 @@ export default async function AdminUsersPage() {
       email: users.email,
       displayName: users.displayName,
       role: users.role,
+      status: users.status,
+      statusChangedAt: users.statusChangedAt,
+      statusReason: users.statusReason,
       createdAt: users.createdAt,
       lastSeenAt: users.lastSeenAt,
       oidcUser: sql<boolean>`starts_with(${users.pingSubject}, ${OIDC_SUBJECT_PREFIX})`,
@@ -53,6 +56,9 @@ export default async function AdminUsersPage() {
     email: r.email,
     displayName: r.displayName,
     role: r.role,
+    status: r.status,
+    statusChangedAt: r.statusChangedAt?.toISOString() ?? null,
+    statusReason: r.statusReason,
     createdAt: r.createdAt.toISOString(),
     lastSeenAt: r.lastSeenAt.toISOString(),
   }));
@@ -74,7 +80,9 @@ export default async function AdminUsersPage() {
           <h2 className="text-base font-semibold text-ink">Users</h2>
           <p className="mt-1 text-xs text-muted">
             {initialUsers.length} {initialUsers.length === 1 ? "user" : "users"}.
-            Promote or demote with the role selector. You can&apos;t demote yourself.
+            Promote or demote with the role selector, and suspend or
+            deprovision an account from its row. You can&apos;t demote or
+            suspend yourself, or suspend the last active admin.
           </p>
         </div>
         <UsersTable

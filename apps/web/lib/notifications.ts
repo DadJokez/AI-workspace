@@ -15,9 +15,8 @@ import { budgetDimensionLabel } from "@/lib/run-budget-policy";
 
 /**
  * Notification inbox + daily digest (issue #292). Everything here is strictly
- * scoped to the owning user with `eq(userId, ...)` — notifications are
- * personal, so there is deliberately no admin bypass (`userScope()` would
- * grant one).
+ * scoped to the owning user with `eq(userId, ...)`: notifications are
+ * personal, and no role reads another user's.
  */
 
 export type NotificationType = "run_succeeded" | "run_failed";

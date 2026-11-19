@@ -14,6 +14,7 @@ import {
   parseConversationResourceResolution,
   type ConversationResourceResolution,
 } from "@/lib/conversation-resources";
+import { ownerIsActive } from "@/lib/active-owner";
 import { appendRunEventBestEffort } from "@/lib/run-events";
 import {
   resolveModelCandidatesForPurpose,
@@ -375,6 +376,9 @@ export async function claimChatRun({
         // #464: never hand a run more attempts than its ceiling, including on
         // the targeted (runId) path. quarantineExhaustedRuns retires it.
         lt(runs.attemptCount, chatRunMaxAttempts()),
+        // WP-18: a suspended or deprovisioned owner's run is never executed,
+        // including on the targeted (runId) path.
+        ownerIsActive(runs.userId),
       ),
     )
     .returning();
@@ -392,6 +396,9 @@ async function findNextClaimableRunId(db: Database): Promise<string | null> {
         claimableRunCondition(),
         unownedRunCondition(now),
         lt(runs.attemptCount, chatRunMaxAttempts()),
+        // Skipped, not just refused at claim: an inactive owner's leftover
+        // run must not sit at the head of the queue.
+        ownerIsActive(runs.userId),
       ),
     )
     .orderBy(asc(runs.createdAt))

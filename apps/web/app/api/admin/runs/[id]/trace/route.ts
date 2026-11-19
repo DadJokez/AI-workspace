@@ -1,10 +1,8 @@
 import { auditLog, getDb, runs, runEvents, users } from "@ai-workspace/db";
 import { and, asc, desc, eq, gte } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import {
-  adminDataAccessJustification,
-  auditAdminDataAccess,
-} from "@/lib/admin-data-access";
+import { recordAdminUserDataAccess } from "@/lib/admin-data-access";
+import { parseAdminReason } from "@/lib/admin-reason";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { redactTracePayload } from "@/lib/tool-redaction";
 import { expandProviderContextSnapshotOutput } from "@/lib/run-trace";
@@ -14,6 +12,14 @@ export const dynamic = "force-dynamic";
 
 const TRACE_ACCESS_WINDOW_MS = 5 * 60 * 1_000;
 
+/**
+ * GET /api/admin/runs/[id]/trace?reason=… — the Run Inspector's redacted
+ * trace. Admin only. For a run the admin owns, no reason is needed. For
+ * another user's run, `reason` (1-500 characters) is required, and an
+ * `admin.user_data_access` row naming the run's owner and the run is written
+ * before the trace is returned; without a reason the answer is a 400 that
+ * carries nothing about the run.
+ */
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -55,23 +61,39 @@ export async function GET(
   }
 
   const now = new Date();
+  const crossUser = run.userId !== auth.user.id;
+  if (crossUser) {
+    const reason = parseAdminReason(
+      new URL(request.url).searchParams.get("reason"),
+    );
+    if (!reason) {
+      return NextResponse.json(
+        {
+          error: "access_reason_required",
+          message:
+            "This run belongs to another user. Give a reason (up to 500 characters) to open it; the reason is recorded in the audit log.",
+        },
+        { status: 400 },
+      );
+    }
+    await recordAdminUserDataAccess({
+      db,
+      actor: auth.user,
+      access: {
+        targetUserId: run.userId,
+        resourceType: "run",
+        resourceId: run.id,
+        surface: "run_inspector",
+        reason,
+        runId: run.id,
+      },
+      now,
+    });
+  }
   await auditTraceAccess({
     db,
     actorUserId: auth.user.id,
     runId: run.id,
-    now,
-  });
-  await auditAdminDataAccess({
-    db,
-    actor: auth.user,
-    access: {
-      targetUserId: run.userId,
-      resourceType: "run",
-      resourceId: run.id,
-      surface: "run_inspector",
-      justification: adminDataAccessJustification(request),
-      runId: run.id,
-    },
     now,
   });
 
@@ -118,10 +140,12 @@ export async function GET(
       .orderBy(desc(auditLog.createdAt))
       .limit(250),
     run.threadId
-      ? loadThreadBranchLineage({
+      ? // The lineage as the run's owner sees it: which branch sources are
+        // still available is decided by the owner's access, not the admin's.
+        loadThreadBranchLineage({
           db,
           threadId: run.threadId,
-          actor: auth.user,
+          actor: { id: run.userId, role: "user" },
         })
       : Promise.resolve(null),
   ]);

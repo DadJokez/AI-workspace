@@ -5,8 +5,10 @@
  * "NextAuth.js Generated Encryption Key", 32 bytes) → compact JWE with
  * `{alg:"dir",enc:"A256GCM"}`. `apps/web/__tests__/load-stats.test.ts`
  * decodes a minted token with the real `next-auth/jwt` to keep this honest.
- * Token claims match what `apps/web/e2e/helpers/auth.ts` installs, so the
- * app's `jwt` callback resolves the user by `ghSub` (ping_subject).
+ * Token claims match what `apps/web/e2e/helpers/auth.ts` installs: the app's
+ * `jwt` callback resolves the user by `userId`, and `getSessionUser` accepts
+ * the token only while `sv` equals the row's `session_version` (0 for a
+ * seeded load user that was never suspended).
  */
 import { createCipheriv, hkdfSync, randomBytes, randomUUID } from "node:crypto";
 
@@ -29,6 +31,7 @@ export function mintSessionToken(key, user, maxAgeSeconds = 2 * 60 * 60) {
     role: user.role,
     email: user.email,
     name: user.displayName,
+    sv: 0,
     iat: now,
     exp: now + maxAgeSeconds,
     jti: randomUUID(),

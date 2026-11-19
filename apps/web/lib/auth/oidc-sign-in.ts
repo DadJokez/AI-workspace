@@ -169,6 +169,14 @@ export interface OidcProvisionResult {
 }
 
 /**
+ * The identity's user is suspended or deprovisioned. Nothing was written:
+ * not the role, not the groups, not an adoption.
+ */
+export interface OidcProvisionRefusal {
+  refused: Extract<AuthDenialReason, "user_inactive">;
+}
+
+/**
  * Find or create the user for an identity that passed the access gate, apply
  * the role the claim dictates, and replace the stored group names. One
  * transaction: a failure leaves the row, its role and its groups as they were.
@@ -180,12 +188,16 @@ export interface OidcProvisionResult {
  * by magic link. That row is re-keyed to the OIDC subject and keeps its data.
  * A user who has since linked GitHub is not adopted, and an unverified address
  * never adopts anyone: either gets a fresh, separate user.
+ *
+ * A user who is not `active` is refused before anything is written, and that
+ * includes the adoption candidate: a suspended magic-link user is neither
+ * re-keyed nor sidestepped with a fresh row.
  */
 export async function provisionOidcUser(
   db: Database,
   identity: OidcIdentity,
   oidc: Pick<OidcConfig, "adminGroup" | "adoptEmailUsers">,
-): Promise<OidcProvisionResult> {
+): Promise<OidcProvisionResult | OidcProvisionRefusal> {
   return db.transaction(async (tx) => {
     let created = false;
     let adopted = false;
@@ -198,16 +210,30 @@ export async function provisionOidcUser(
         .limit(1)
         .for("update")
     )[0];
+    if (row && row.status !== "active") return { refused: "user_inactive" };
 
     if (!row && oidc.adoptEmailUsers && identity.emailVerified) {
       // `ping_subject` is unique, so this matches at most one row.
-      row = (
+      const candidate = (
         await tx
-          .update(users)
-          .set({ pingSubject: identity.subject })
+          .select({ id: users.id, status: users.status })
+          .from(users)
           .where(eq(users.pingSubject, emailPingSubject(identity.email)))
-          .returning()
+          .limit(1)
+          .for("update")
       )[0];
+      if (candidate && candidate.status !== "active") {
+        return { refused: "user_inactive" };
+      }
+      row = candidate
+        ? (
+            await tx
+              .update(users)
+              .set({ pingSubject: identity.subject })
+              .where(eq(users.id, candidate.id))
+              .returning()
+          )[0]
+        : undefined;
       adopted = row !== undefined;
     }
 

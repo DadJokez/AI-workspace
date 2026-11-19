@@ -25,16 +25,11 @@ let runRows: Array<{
   updatedAt: Date;
 }> = [];
 let eventRows: Array<{ latestEventSequence: number | null }> = [];
-const auditAdminDataAccess = vi.fn();
+let runWheres: unknown[] = [];
 
 function installMocks() {
   vi.doMock("@/lib/auth/getSessionUser", () => ({
     getSessionUser: async () => currentSession,
-  }));
-  vi.doMock("@/lib/admin-data-access", () => ({
-    adminDataAccessJustification: (request: Request) =>
-      request.headers.get("x-admin-access-justification"),
-    auditAdminDataAccess,
   }));
   vi.doMock("@ai-workspace/db", async () => {
     const actual =
@@ -45,12 +40,15 @@ function installMocks() {
     // (awaited directly). Dispatch on the table passed to .from().
     const makeQuery = () => {
       let rows: unknown[] = [];
+      let fromRuns = false;
       const query = {
         from(table: unknown) {
-          rows = table === actual.runs ? runRows : eventRows;
+          fromRuns = table === actual.runs;
+          rows = fromRuns ? runRows : eventRows;
           return query;
         },
-        where() {
+        where(condition: unknown) {
+          if (fromRuns) runWheres.push(condition);
           return {
             limit: () => Promise.resolve(rows),
             then: (
@@ -84,8 +82,7 @@ beforeEach(() => {
     },
   ];
   eventRows = [{ latestEventSequence: 7 }];
-  auditAdminDataAccess.mockReset();
-  auditAdminDataAccess.mockResolvedValue("skipped");
+  runWheres = [];
 });
 
 afterEach(() => {
@@ -171,40 +168,18 @@ describe("GET /api/runs/[id]/status", () => {
     expect(body.run.latestEventSequence).toBeNull();
   });
 
-  it("audits an admin status poll against the run owner", async () => {
+  it("scopes an admin's poll to the admin's own runs (WP-18)", async () => {
     currentSession = { ...session, id: "admin-uuid", role: "admin" };
-    runRows = [
-      {
-        id: "run-1",
-        userId: "target-user-uuid",
-        status: "running",
-        outputs: null,
-        updatedAt: fixedDate,
-      },
-    ];
     installMocks();
 
     const { GET } = await import("@/app/api/runs/[id]/status/route");
-    const request = new Request("http://localhost/api/runs/run-1/status", {
-      headers: { "x-admin-access-justification": "Support case 42" },
-    });
-    const res = await GET(request, {
+    await GET(new Request("http://localhost/api/runs/run-1/status"), {
       params: Promise.resolve({ id: "run-1" }),
     });
 
-    expect(res.status).toBe(200);
-    expect(auditAdminDataAccess).toHaveBeenCalledWith(
-      expect.objectContaining({
-        actor: currentSession,
-        access: {
-          targetUserId: "target-user-uuid",
-          resourceType: "run",
-          resourceId: "run-1",
-          surface: "run_status",
-          justification: "Support case 42",
-          runId: "run-1",
-        },
-      }),
-    );
+    const { PgDialect } = await import("drizzle-orm/pg-core");
+    const { sql, params } = new PgDialect().sqlToQuery(runWheres[0] as never);
+    expect(sql).toContain('"runs"."user_id" = ');
+    expect(params).toEqual(["run-1", "admin-uuid"]);
   });
 });

@@ -8,7 +8,8 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Metric, StatusBadge, StatusDot } from "@/app/admin/ui";
 import { MessageBubble } from "@/components/MessageBubble";
-import { auditAdminDataAccess } from "@/lib/admin-data-access";
+import { recordAdminUserDataAccess } from "@/lib/admin-data-access";
+import { ADMIN_REASON_MAX_CHARS, parseAdminReason } from "@/lib/admin-reason";
 import {
   formatDateTime,
   formatDuration,
@@ -35,6 +36,7 @@ export const dynamic = "force-dynamic";
 
 interface Props {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }
 
 interface RunOutput {
@@ -82,7 +84,10 @@ interface RunTimingMetrics {
   requestToCompletedMs?: number;
 }
 
-export default async function AdminRunDetailPage({ params }: Props) {
+export default async function AdminRunDetailPage({
+  params,
+  searchParams,
+}: Props) {
   const sessionUser = await getSessionUser();
   if (!sessionUser || sessionUser.role !== "admin") {
     redirect("/chat");
@@ -119,17 +124,31 @@ export default async function AdminRunDetailPage({ params }: Props) {
   const run = rows[0];
   if (!run) notFound();
 
-  await auditAdminDataAccess({
-    db,
-    actor: sessionUser,
-    access: {
-      targetUserId: run.userId,
-      resourceType: "run",
-      resourceId: run.id,
-      surface: "admin_run_detail",
-      runId: run.id,
-    },
-  });
+  // Another user's prompt, answer and tool calls open only with a reason,
+  // recorded before anything below is read or rendered.
+  if (run.userId !== sessionUser.id) {
+    const reason = parseAdminReason(firstParam((await searchParams)?.reason));
+    if (!reason) {
+      return (
+        <AccessReasonGate
+          runId={run.id}
+          ownerLabel={run.actorName ?? run.actorEmail ?? "another user"}
+        />
+      );
+    }
+    await recordAdminUserDataAccess({
+      db,
+      actor: sessionUser,
+      access: {
+        targetUserId: run.userId,
+        resourceType: "run",
+        resourceId: run.id,
+        surface: "admin_run_detail",
+        reason,
+        runId: run.id,
+      },
+    });
+  }
 
   const auditRows = await db
     .select({
@@ -743,4 +762,62 @@ function formatAction(value: string) {
 
 function formatNullableDate(value: Date | null) {
   return value ? formatDateTime(value) : "n/a";
+}
+
+function firstParam(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+/**
+ * Shown instead of another user's run until the admin gives a reason. A plain
+ * GET form back to this page: the reason arrives as `?reason=` and is
+ * recorded before the run renders.
+ */
+function AccessReasonGate({
+  runId,
+  ownerLabel,
+}: {
+  runId: string;
+  ownerLabel: string;
+}) {
+  return (
+    <section className="px-6 py-4">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+        <Link href="/admin/runs" className="hover:text-ink">
+          Runs
+        </Link>
+        <span>/</span>
+        <span className="font-mono">{shortId(runId)}</span>
+      </div>
+      <form method="get" className="mt-4 max-w-lg">
+        <h2 className="text-base font-semibold text-ink">
+          This run belongs to {ownerLabel}
+        </h2>
+        <p className="mt-1 text-xs text-muted">
+          Its prompt, answer and tool calls are their data. Opening it is
+          recorded in the audit log with your reason.
+        </p>
+        <label
+          htmlFor="admin-run-access-reason"
+          className="mt-4 block text-xs font-medium text-ink"
+        >
+          Reason
+        </label>
+        <textarea
+          id="admin-run-access-reason"
+          name="reason"
+          required
+          maxLength={ADMIN_REASON_MAX_CHARS}
+          rows={3}
+          className="mt-1 w-full rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink"
+        />
+        <button
+          type="submit"
+          className="mt-3 rounded-md border border-hairline px-3 py-1.5 text-xs font-medium text-ink hover:bg-subtle"
+        >
+          Open run
+        </button>
+      </form>
+    </section>
+  );
 }

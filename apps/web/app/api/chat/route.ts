@@ -346,8 +346,10 @@ export async function POST(req: Request) {
   let thread: ChatThread;
   if (body.threadId) {
     // Posting a message MUTATES the thread, so this is owner-scoped with no
-    // admin bypass — userScope() is read-side only per its own contract, and
-    // using it here let admins write into other users' threads (#445).
+    // admin bypass. It once used userScope() while that helper still gave
+    // admins every row, which let admins write into other users' threads
+    // (#445); the explicit predicate stays so a write never depends on a
+    // read-side helper.
     const owned = await db
       .select()
       .from(chatThreads)

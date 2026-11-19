@@ -19,6 +19,14 @@ interface DbFixtures {
 
 let fixtures: DbFixtures;
 
+const REASON = "Support ticket 4411: the run stalled";
+
+/** The run belongs to another user unless a test says otherwise (WP-18). */
+function traceRequest(reason: string | null = REASON) {
+  const query = reason === null ? "" : `?reason=${encodeURIComponent(reason)}`;
+  return new Request(`http://localhost/api/admin/runs/run-uuid/trace${query}`);
+}
+
 function setAdminResult(result: "admin" | "forbidden") {
   vi.doMock("@/lib/auth/requireAdmin", async () => {
     const { NextResponse } = await import("next/server");
@@ -43,11 +51,13 @@ function installDbMock() {
         "@ai-workspace/db",
       );
 
-    function select(selection?: Record<string, unknown>) {
+    const { PgDialect } = await import("drizzle-orm/pg-core");
+    const dialect = new PgDialect();
+
+    function select() {
       let table: unknown;
       let ordered = false;
-      const recentKind =
-        selection && "metadata" in selection ? "admin" : "trace";
+      let recentKind: "admin" | "trace" = "trace";
       const query = {
         from(nextTable: unknown) {
           table = nextTable;
@@ -56,7 +66,15 @@ function installDbMock() {
         leftJoin() {
           return query;
         },
-        where() {
+        where(condition: unknown) {
+          if (
+            table === actual.auditLog &&
+            dialect
+              .sqlToQuery(condition as never)
+              .params.includes("admin.user_data_access")
+          ) {
+            recentKind = "admin";
+          }
           return query;
         },
         orderBy() {
@@ -221,7 +239,7 @@ describe("GET /api/admin/runs/[id]/trace", () => {
     const { GET } = await import("@/app/api/admin/runs/[id]/trace/route");
 
     const response = await GET(
-      new Request("http://localhost/api/admin/runs/run-uuid/trace"),
+      traceRequest(),
       { params: Promise.resolve({ id: "run-uuid" }) },
     );
 
@@ -235,7 +253,7 @@ describe("GET /api/admin/runs/[id]/trace", () => {
     const { GET } = await import("@/app/api/admin/runs/[id]/trace/route");
 
     const response = await GET(
-      new Request("http://localhost/api/admin/runs/run-uuid/trace"),
+      traceRequest(),
       { params: Promise.resolve({ id: "run-uuid" }) },
     );
     const body = (await response.json()) as { trace: unknown };
@@ -247,16 +265,11 @@ describe("GET /api/admin/runs/[id]/trace", () => {
     expect(serialized).not.toContain("should-not-leak");
     expect(serialized).toContain("[redacted]");
     expect(fixtures.insertedAudit).toEqual([
+      // Written before the trace is assembled (WP-18).
       expect.objectContaining({
         actorUserId: adminSession.id,
         runId: "run-uuid",
-        actionType: "run_trace_viewed",
-        status: "succeeded",
-      }),
-      expect.objectContaining({
-        actorUserId: adminSession.id,
-        runId: "run-uuid",
-        actionType: "admin_data_access",
+        actionType: "admin.user_data_access",
         status: "succeeded",
         metadata: {
           schema: "admin-data-access.v1",
@@ -264,10 +277,41 @@ describe("GET /api/admin/runs/[id]/trace", () => {
           resourceType: "run",
           resourceId: "run-uuid",
           surface: "run_inspector",
+          justification: REASON,
         },
+      }),
+      expect.objectContaining({
+        actorUserId: adminSession.id,
+        runId: "run-uuid",
+        actionType: "run_trace_viewed",
+        status: "succeeded",
       }),
     ]);
   });
+
+  it.each([
+    ["no reason", null],
+    ["a blank reason", "   "],
+    ["a reason over 500 characters", "x".repeat(501)],
+  ])(
+    "refuses another user's run with %s, returning and recording nothing (WP-18)",
+    async (_label, reason) => {
+      setAdminResult("admin");
+      installDbMock();
+      const { GET } = await import("@/app/api/admin/runs/[id]/trace/route");
+
+      const response = await GET(traceRequest(reason), {
+        params: Promise.resolve({ id: "run-uuid" }),
+      });
+      const text = await response.text();
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(text)).toMatchObject({ error: "access_reason_required" });
+      expect(text).not.toContain("Inspect the repository");
+      expect(text).not.toContain("user@example.com");
+      expect(fixtures.insertedAudit).toHaveLength(0);
+    },
+  );
 
   it("preserves first-token timing telemetry through the export while credentials stay redacted (#387)", async () => {
     setAdminResult("admin");
@@ -275,7 +319,7 @@ describe("GET /api/admin/runs/[id]/trace", () => {
     const { GET } = await import("@/app/api/admin/runs/[id]/trace/route");
 
     const response = await GET(
-      new Request("http://localhost/api/admin/runs/run-uuid/trace"),
+      traceRequest(),
       { params: Promise.resolve({ id: "run-uuid" }) },
     );
     const body = (await response.json()) as { trace: unknown };
@@ -320,7 +364,7 @@ describe("GET /api/admin/runs/[id]/trace", () => {
     const { GET } = await import("@/app/api/admin/runs/[id]/trace/route");
 
     const response = await GET(
-      new Request("http://localhost/api/admin/runs/run-uuid/trace"),
+      traceRequest(),
       { params: Promise.resolve({ id: "run-uuid" }) },
     );
     const body = (await response.json()) as {
@@ -342,7 +386,7 @@ describe("GET /api/admin/runs/[id]/trace", () => {
     const { GET } = await import("@/app/api/admin/runs/[id]/trace/route");
 
     const response = await GET(
-      new Request("http://localhost/api/admin/runs/run-uuid/trace"),
+      traceRequest(),
       { params: Promise.resolve({ id: "run-uuid" }) },
     );
     const body = (await response.json()) as {
@@ -376,23 +420,14 @@ describe("GET /api/admin/runs/[id]/trace", () => {
 
   it("deduplicates polling access within the audit window", async () => {
     fixtures.recentTraceRows = [{ id: "existing-trace-access" }];
-    fixtures.recentAccessRows = [
-      {
-        metadata: {
-          schema: "admin-data-access.v1",
-          targetUserId: "user-uuid",
-          resourceType: "run",
-          resourceId: "run-uuid",
-          surface: "run_inspector",
-        },
-      },
-    ];
+    // Same admin, run, surface and reason within the window.
+    fixtures.recentAccessRows = [{ id: "existing-user-data-access" }];
     setAdminResult("admin");
     installDbMock();
     const { GET } = await import("@/app/api/admin/runs/[id]/trace/route");
 
     const response = await GET(
-      new Request("http://localhost/api/admin/runs/run-uuid/trace"),
+      traceRequest(),
       { params: Promise.resolve({ id: "run-uuid" }) },
     );
 
@@ -400,14 +435,14 @@ describe("GET /api/admin/runs/[id]/trace", () => {
     expect(fixtures.insertedAudit).toHaveLength(0);
   });
 
-  it("does not label an admin's own run as privileged cross-user access", async () => {
+  it("opens an admin's own run without a reason and without a cross-user access row", async () => {
     fixtures.runRows[0]!.userId = adminSession.id;
     setAdminResult("admin");
     installDbMock();
     const { GET } = await import("@/app/api/admin/runs/[id]/trace/route");
 
     const response = await GET(
-      new Request("http://localhost/api/admin/runs/run-uuid/trace"),
+      traceRequest(null),
       { params: Promise.resolve({ id: "run-uuid" }) },
     );
 
@@ -460,7 +495,7 @@ describe("GET /api/admin/runs/[id]/trace", () => {
     const { GET } = await import("@/app/api/admin/runs/[id]/trace/route");
 
     const response = await GET(
-      new Request("http://localhost/api/admin/runs/run-uuid/trace"),
+      traceRequest(),
       { params: Promise.resolve({ id: "run-uuid" }) },
     );
     const body = (await response.json()) as {

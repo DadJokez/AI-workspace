@@ -5,11 +5,14 @@ import {
   ADMIN_DATA_ACCESS_ACTION,
   ADMIN_DATA_ACCESS_JUSTIFICATION_HEADER,
   ADMIN_DATA_ACCESS_SCHEMA,
+  ADMIN_USER_DATA_ACCESS_ACTION,
   adminDataAccessJustification,
   auditAdminDataAccess,
   auditAdminDataAccessBatch,
   parseAdminDataAccessMetadata,
+  recordAdminUserDataAccess,
 } from "@/lib/admin-data-access";
+import { ADMIN_REASON_MAX_CHARS, parseAdminReason } from "@/lib/admin-reason";
 
 const admin: SessionUser = {
   id: "admin-user",
@@ -256,5 +259,90 @@ describe("admin data access audit", () => {
         resourceType: "run",
       }),
     ).toBeNull();
+  });
+});
+
+describe("reason-bearing admin access to another user's data (WP-18)", () => {
+  const access = {
+    targetUserId: user.id,
+    resourceType: "run",
+    resourceId: "run-1",
+    surface: "run_inspector",
+    reason: "Support ticket 4411",
+    runId: "run-1",
+  };
+
+  it("writes an admin.user_data_access row carrying the reason as the justification", async () => {
+    const mocked = mockDb();
+
+    await expect(
+      recordAdminUserDataAccess({ db: mocked.db, actor: admin, access, now }),
+    ).resolves.toBe("recorded");
+
+    expect(mocked.inserted).toEqual([
+      expect.objectContaining({
+        actorUserId: admin.id,
+        actionType: ADMIN_USER_DATA_ACCESS_ACTION,
+        status: "succeeded",
+        runId: "run-1",
+        createdAt: now,
+        metadata: {
+          schema: ADMIN_DATA_ACCESS_SCHEMA,
+          targetUserId: user.id,
+          resourceType: "run",
+          resourceId: "run-1",
+          surface: "run_inspector",
+          justification: "Support ticket 4411",
+        },
+      }),
+    ]);
+    // The audit page reads it like any other access receipt.
+    expect(
+      parseAdminDataAccessMetadata(mocked.inserted[0]!.metadata),
+    ).toMatchObject({ justification: "Support ticket 4411" });
+  });
+
+  it("does not write a second row for the same access and reason within the window", async () => {
+    const mocked = mockDb([{ id: "recent" }]);
+
+    await expect(
+      recordAdminUserDataAccess({ db: mocked.db, actor: admin, access, now }),
+    ).resolves.toBe("deduplicated");
+    expect(mocked.inserted).toHaveLength(0);
+  });
+
+  it("fails closed: a ledger error reaches the caller", async () => {
+    const mocked = mockDb();
+    const db = {
+      select: mocked.db.select,
+      insert: () => ({
+        values: async () => {
+          throw new Error("ledger unavailable");
+        },
+      }),
+    } as unknown as Database;
+
+    await expect(
+      recordAdminUserDataAccess({ db, actor: admin, access, now }),
+    ).rejects.toThrow("ledger unavailable");
+  });
+});
+
+describe("parseAdminReason", () => {
+  it("accepts 1-500 characters after trimming", () => {
+    expect(parseAdminReason("  Support ticket  ")).toBe("Support ticket");
+    expect(parseAdminReason("x".repeat(ADMIN_REASON_MAX_CHARS))).toHaveLength(
+      ADMIN_REASON_MAX_CHARS,
+    );
+  });
+
+  it.each([
+    ["undefined", undefined],
+    ["a number", 42],
+    ["an empty string", ""],
+    ["whitespace", "   "],
+    ["501 characters", "x".repeat(ADMIN_REASON_MAX_CHARS + 1)],
+  ])("refuses %s", (_label, value) => {
+    expect(parseAdminReason(value)).toBeNull();
   });
 });

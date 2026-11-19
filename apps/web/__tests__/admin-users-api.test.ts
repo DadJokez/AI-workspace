@@ -30,6 +30,9 @@ const sampleRows = [
     email: "admin@example.com",
     displayName: "Admin",
     role: "admin" as const,
+    status: "active" as const,
+    statusChangedAt: null,
+    statusReason: null,
     createdAt: fixedDate,
     lastSeenAt: fixedDate,
   },
@@ -38,6 +41,9 @@ const sampleRows = [
     email: "user@example.com",
     displayName: "User",
     role: "user" as const,
+    status: "suspended" as const,
+    statusChangedAt: fixedDate as Date | null,
+    statusReason: "Left the team" as string | null,
     createdAt: fixedDate,
     lastSeenAt: fixedDate,
   },
@@ -156,6 +162,17 @@ describe("GET /api/admin/users", () => {
     expect(body.users[0]?.id).toBe("admin-uuid");
     // Timestamps are serialized as ISO strings.
     expect(body.users[0]?.createdAt).toBe(fixedDate.toISOString());
+    // WP-18: each row carries its lifecycle status.
+    expect(body.users[0]).toMatchObject({
+      status: "active",
+      statusChangedAt: null,
+      statusReason: null,
+    });
+    expect(body.users[1]).toMatchObject({
+      status: "suspended",
+      statusChangedAt: fixedDate.toISOString(),
+      statusReason: "Left the team",
+    });
   });
 });
 
@@ -208,6 +225,9 @@ describe("PATCH /api/admin/users/[id]", () => {
       email: "user@example.com",
       displayName: "User",
       role: "admin" as const,
+      status: "active" as const,
+      statusChangedAt: null,
+      statusReason: null,
       createdAt: fixedDate,
       lastSeenAt: fixedDate,
     };

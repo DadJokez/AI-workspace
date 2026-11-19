@@ -142,7 +142,9 @@ In both cases:
 - `session.user.id` is the canonical `users.id` UUID (set in JWT callback via `token.userId = dbUser.id`).
 - `users.ping_subject` stores the external subject used by the active identity path.
 - Admin status is `users.role = 'admin'` — set directly in the DB.
-- `getSessionUser()` in `lib/auth/getSessionUser.ts` is the canonical user lookup: `WHERE id = session.user.id`. All API routes use this.
+- `getSessionUser()` in `lib/auth/getSessionUser.ts` is the canonical user lookup: `WHERE id = session.user.id`. All API routes use this. It honours the JWT only while `users.status = 'active'` and the token's `sv` (stamped at sign-in) equals `users.session_version`, and writes `last_seen_at` at most once per five minutes.
+- Accounts are suspended, deprovisioned and reactivated from the admin users table (`lib/user-lifecycle.ts`). Suspension bumps `session_version` (every live JWT stops working), revokes the user's OAuth connections, turns off their schedules and event triggers, and cancels their live runs, in one transaction; nothing is deleted. The sign-in gate, the chat worker's claim and the scheduler refuse a user who is not active.
+- `userScope()` scopes admins like everyone else: an admin's personal surfaces show the admin's own rows. Another user's run content is opened only through explicit admin routes that take a reason and audit it first (`admin.user_data_access`).
 
 ### Layer 2 — Shell → MCP servers (per-user delegated)
 
@@ -487,7 +489,8 @@ redacted `toolCalls`/`toolResults` for the shared activity UI, and writes
 redacted tool execution audit rows linked by `run_id`.
 Admins can inspect recent runs at `/admin/runs` and open `/admin/runs/[id]` to
 review the stored briefing, activity timeline, redacted tool payloads, prompt,
-and linked audit events. Failed or canceled Developer Briefing runs can be
+and linked audit events; for another user's run the page first asks for a
+reason and records it (`admin.user_data_access`). Failed or canceled Developer Briefing runs can be
 retried from the run detail page; the retry creates a new `runs` row with
 `triggerType = manual_retry` and records the source run id in `inputs`. This
 proves the recipe execution path before the full recipes table exists.

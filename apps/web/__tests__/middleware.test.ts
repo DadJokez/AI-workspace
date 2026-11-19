@@ -80,6 +80,17 @@ describe("middleware — auth gate", () => {
     expect(res.headers.get("location")).toBeNull();
   });
 
+  it("gates pages on the JWT alone: a suspended user's unexpired token gets through (WP-18)", async () => {
+    // The edge cannot see users.status or users.session_version. This is the
+    // accepted gap: the page it lets through renders nothing of the user's
+    // and every API call it makes goes through getSessionUser, which refuses
+    // this token (__tests__/get-session-user.test.ts).
+    getTokenMock.mockResolvedValueOnce({ role: "user", userId: "u1", sv: 0 });
+    const res = await middleware(makeReq("/chat"));
+    expect(res.headers.get("location")).toBeNull();
+    expect(getTokenMock).toHaveBeenCalledTimes(1);
+  });
+
   it("redirects the legacy production host to the canonical host", async () => {
     process.env.LEGACY_HOST_REDIRECT_FROM = "ai-workspace.builtwithrobot.link";
     process.env.NEXTAUTH_URL = "https://comparative.builtwithrobot.link";

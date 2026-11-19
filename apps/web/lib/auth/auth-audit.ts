@@ -55,7 +55,9 @@ export type AuthDenialReason =
   /** OIDC_REQUIRED_GROUP is set and the groups claim does not contain it. */
   | "required_group_missing"
   /** The OIDC user row could not be written. */
-  | "provisioning_failed";
+  | "provisioning_failed"
+  /** The user exists but is suspended or deprovisioned. */
+  | "user_inactive";
 
 /**
  * Magic links run the gate twice: once when the link is requested (before any

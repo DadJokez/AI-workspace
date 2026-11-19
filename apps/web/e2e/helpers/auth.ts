@@ -29,6 +29,8 @@ export async function installAuthSmokeSession(page: Page) {
       role: authSmokeUser.role,
       email: authSmokeUser.email,
       name: authSmokeUser.displayName,
+      // The seeded row's session_version; getSessionUser refuses a mismatch.
+      sv: 0,
       iat: Math.floor(Date.now() / 1000),
       exp: expires,
     },
