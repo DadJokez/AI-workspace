@@ -129,6 +129,26 @@ certificate_arn = "REPLACE_ME_CERTIFICATE_ARN"
 # (pre-migrate-<sha12>-<run>) and deletes those snapshots older than this.
 snapshot_keep_days = 7
 
+# --- 50-agentcore ------------------------------------------------------------
+
+# The sandbox profile: the runtime in AgentCore's own network, as production's
+# is today. Firewall mode sets "VPC": the runtime then sits in the agentcore
+# subnets with the agent_runtime security group of 10-network.
+agentcore_network_mode = "PUBLIC"
+
+# The Studio Browser stays in the VPC, as production's does today: its
+# security group lets it reach only the browser proxy and DNS.
+agentcore_browser_network_mode = "VPC"
+
+# Web search of the agent, as production's: the Brave key is the field
+# BRAVE_SEARCH_API_KEY of comparative/<env>/app. "none" offers no web search
+# tool. Keep it in step with WEB_SEARCH_PROVIDER of the services (a field of
+# the app secret, or extra_environment below).
+agentcore_web_search_provider = "brave"
+
+# The agent's models are bedrock_model_ids and the two values after it, under
+# 40-services.
+
 # --- 40-services -------------------------------------------------------------
 
 # One web task, growing to two under load; one task of each worker.
@@ -142,8 +162,9 @@ invite_email_provider = "ses"
 invite_email_from     = "REPLACE_ME_INVITE_EMAIL_FROM"
 invite_email_identity = "REPLACE_ME_SES_IDENTITY"
 
-# The services may invoke exactly these models: the inference profile
-# <prefix><id> in aws_region and the foundation model in each routed region.
+# The services, and the agent of 50-agentcore, may invoke exactly these
+# models: the inference profile <prefix><id> in aws_region and the foundation
+# model in each routed region.
 # Fill bedrock_model_ids with every foundation-model id the application can
 # select, without the prefix.
 bedrock_model_ids                = ["REPLACE_ME_BEDROCK_MODEL_ID"]

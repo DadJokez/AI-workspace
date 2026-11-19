@@ -218,6 +218,16 @@ run "baseline" {
     )
     error_message = "parameters live under /comparative/<env>/40-services/ and hold the service names"
   }
+  # The names 50-agentcore publishes under; its own test asserts the same
+  # keys.
+  assert {
+    condition = (
+      data.aws_ssm_parameter.runtime_arn.name == "/comparative/unit/50-agentcore/runtime_arn" &&
+      data.aws_ssm_parameter.browser_id.name == "/comparative/unit/50-agentcore/browser_id" &&
+      data.aws_ssm_parameter.browser_arn.name == "/comparative/unit/50-agentcore/browser_arn"
+    )
+    error_message = "the runtime and the browser are read from the parameters 50-agentcore publishes"
+  }
 
   # Model access: the inference profile of each model in the home region and
   # the foundation model in each routed region. Never a wildcard.
