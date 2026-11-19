@@ -1,0 +1,176 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.17.2",
+  "timestamp": "2026-11-19T04:31:07Z",
+  "prior_state": {
+    "format_version": "1.0",
+    "terraform_version": "1.17.2",
+    "values": {
+      "root_module": {
+        "resources": [
+          {
+            "address": "aws_ssm_parameter.published[\"sg/web_id\"]",
+            "mode": "managed",
+            "type": "aws_ssm_parameter",
+            "name": "published",
+            "index": "sg/web_id",
+            "values": { "name": "/comparative/unit/10-network/sg/web_id", "value": "sg-0web" }
+          },
+          {
+            "address": "data.aws_security_group.lookup",
+            "mode": "data",
+            "type": "aws_security_group",
+            "name": "lookup",
+            "values": { "id": "sg-0data-source-is-not-managed" }
+          }
+        ],
+        "child_modules": [
+          {
+            "address": "module.network",
+            "resources": [
+              {
+                "address": "module.network.aws_security_group.this[\"alb\"]",
+                "mode": "managed",
+                "type": "aws_security_group",
+                "name": "this",
+                "index": "alb",
+                "values": { "id": "sg-0alb", "name": "cmp-unit-alb" }
+              },
+              {
+                "address": "module.network.aws_security_group.this[\"web\"]",
+                "mode": "managed",
+                "type": "aws_security_group",
+                "name": "this",
+                "index": "web",
+                "values": { "id": "sg-0web", "name": "cmp-unit-web" }
+              },
+              {
+                "address": "module.network.aws_vpc_security_group_ingress_rule.alb_https[\"10.0.0.0/8\"]",
+                "mode": "managed",
+                "type": "aws_vpc_security_group_ingress_rule",
+                "name": "alb_https",
+                "index": "10.0.0.0/8",
+                "values": { "id": "sgr-0albhttps", "security_group_rule_id": "sgr-0albhttps", "security_group_id": "sg-0alb", "cidr_ipv4": "10.0.0.0/8", "from_port": 443, "to_port": 443 }
+              },
+              {
+                "address": "module.network.aws_vpc_security_group_egress_rule.flow[\"alb-to-web\"]",
+                "mode": "managed",
+                "type": "aws_vpc_security_group_egress_rule",
+                "name": "flow",
+                "index": "alb-to-web",
+                "values": { "id": "sgr-0albtoweb", "security_group_rule_id": "sgr-0albtoweb", "security_group_id": "sg-0alb" }
+              },
+              {
+                "address": "module.network.aws_vpc_security_group_ingress_rule.flow[\"web-from-alb\"]",
+                "mode": "managed",
+                "type": "aws_vpc_security_group_ingress_rule",
+                "name": "flow",
+                "index": "web-from-alb",
+                "values": { "id": "sgr-0webfromalb", "security_group_rule_id": "sgr-0webfromalb", "security_group_id": "sg-0web", "from_port": 3001, "to_port": 3001 }
+              }
+            ],
+            "child_modules": [
+              {
+                "address": "module.network.module.nested",
+                "resources": [
+                  {
+                    "address": "module.network.module.nested.aws_security_group.proxy",
+                    "mode": "managed",
+                    "type": "aws_security_group",
+                    "name": "proxy",
+                    "values": { "id": "sg-0proxy", "name": "cmp-unit-proxy" }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "resource_drift": [
+    {
+      "address": "module.network.aws_vpc_security_group_ingress_rule.flow[\"web-from-alb\"]",
+      "module_address": "module.network",
+      "mode": "managed",
+      "type": "aws_vpc_security_group_ingress_rule",
+      "name": "flow",
+      "index": "web-from-alb",
+      "change": {
+        "actions": ["update"],
+        "before": { "from_port": 3000, "to_port": 3000 },
+        "after": { "from_port": 3001, "to_port": 3001 },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_ssm_parameter.published[\"sg/alb_id\"]",
+      "mode": "managed",
+      "type": "aws_ssm_parameter",
+      "name": "published",
+      "index": "sg/alb_id",
+      "change": {
+        "actions": ["delete"],
+        "before": { "value": "hunter2-not-a-real-value" },
+        "after": null,
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_ssm_parameter.published[\"sg/web_id\"]",
+      "mode": "managed",
+      "type": "aws_ssm_parameter",
+      "name": "published",
+      "index": "sg/web_id",
+      "change": {
+        "actions": ["update"],
+        "before": { "description": "" },
+        "after": { "description": "edited in the console" },
+        "after_unknown": {}
+      }
+    }
+  ],
+  "resource_changes": [
+    {
+      "address": "module.network.aws_vpc_security_group_ingress_rule.flow[\"web-from-alb\"]",
+      "module_address": "module.network",
+      "mode": "managed",
+      "type": "aws_vpc_security_group_ingress_rule",
+      "name": "flow",
+      "index": "web-from-alb",
+      "change": {
+        "actions": ["update"],
+        "before": { "from_port": 3001, "to_port": 3001 },
+        "after": { "from_port": 3000, "to_port": 3000 },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_ssm_parameter.published[\"sg/alb_id\"]",
+      "mode": "managed",
+      "type": "aws_ssm_parameter",
+      "name": "published",
+      "index": "sg/alb_id",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": { "value": "hunter2-not-a-real-value" },
+        "after_unknown": { "arn": true }
+      }
+    },
+    {
+      "address": "aws_ssm_parameter.published[\"sg/web_id\"]",
+      "mode": "managed",
+      "type": "aws_ssm_parameter",
+      "name": "published",
+      "index": "sg/web_id",
+      "change": {
+        "actions": ["update"],
+        "before": { "description": "edited in the console" },
+        "after": { "description": "" },
+        "after_unknown": {}
+      }
+    }
+  ],
+  "output_changes": {}
+}

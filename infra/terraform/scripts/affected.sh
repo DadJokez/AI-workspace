@@ -2,6 +2,7 @@
 # affected.sh — which (environment, stack) pairs a change affects.
 #
 #   git diff --name-only --no-renames -z <base> <head> | affected.sh [<terraform root>]
+#   affected.sh --all [<terraform root>]
 #
 # Reads the changed paths (repository-relative, NUL-separated) on stdin. The
 # environments and stacks are the directories of <terraform root> (default:
@@ -22,6 +23,9 @@
 # A pair whose environment or stack directory does not exist at <head> is
 # left out: it cannot be planned (50-agentcore does not exist yet).
 #
+# --all reads nothing and prints every pair, as a change to tf.sh would: what
+# the drift workflow plans.
+#
 # stdout: one line per pair, `<env>\t<stack>\t<kind>`, environments sorted,
 #         stacks in apply order. <kind> is `release` when only the release
 #         file affects the pair, `infra` when only other changes do, `both`
@@ -35,7 +39,12 @@ set -euo pipefail
 apply_order=(00-foundation 10-network 20-data 30-platform 35-deploy-tasks 50-agentcore 40-services 60-observability)
 release_stacks=(35-deploy-tasks 50-agentcore 40-services)
 
-[ "$#" -le 1 ] || { echo "usage: affected.sh [<terraform root>] < changed paths" >&2; exit 2; }
+all=false
+if [ "${1:-}" = --all ]; then
+  all=true
+  shift
+fi
+[ "$#" -le 1 ] || { echo "usage: affected.sh [--all] [<terraform root>] < changed paths" >&2; exit 2; }
 root=${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
 [ -d "$root/stacks" ] && [ -d "$root/envs" ] || {
   echo "affected.sh: $root has no stacks/ and envs/" >&2
@@ -101,7 +110,11 @@ mark_all_stacks() { # env
   for stack in "${stacks[@]}"; do mark "$1" "$stack" infra; done
 }
 
-while IFS= read -r -d '' path; do
+if [ "$all" = true ]; then
+  for env_name in "${envs[@]}"; do mark_all_stacks "$env_name"; done
+fi
+
+while [ "$all" = false ] && IFS= read -r -d '' path; do
   case "$path" in
     "${prefix}"*) path=${path#"$prefix"} ;;
     *) continue ;;

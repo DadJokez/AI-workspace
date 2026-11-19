@@ -59,3 +59,8 @@ variable "eval_inference_regions" {
   description = "Regions the inference profile routes to."
   type        = list(string)
 }
+
+variable "break_glass_principal_arns" {
+  description = "IAM users or roles that may assume the break-glass role, each with MFA (docs/runbooks/BREAK_GLASS.md)."
+  type        = list(string)
+}

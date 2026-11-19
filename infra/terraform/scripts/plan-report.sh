@@ -8,6 +8,12 @@
 #       counts only: never an address (a for_each key can be a configuration
 #       value) and never a value. Safe for a pull-request comment.
 #
+#   plan-report.sh outside <plan.json>
+#       Markdown like `summary`, of what Terraform found changed or deleted
+#       outside Terraform since the state was written (resource_drift): the
+#       drift workflow's issue shows it beside what an apply would do. Types
+#       and counts only.
+#
 #   plan-report.sh changes <plan.json>
 #       The number of managed resources and outputs the plan would change.
 #       0 means there is nothing to apply.
@@ -32,7 +38,7 @@ set -euo pipefail
 stateful_types='["aws_db_instance", "aws_kms_key", "aws_s3_bucket", "aws_secretsmanager_secret", "aws_ecr_repository"]'
 
 usage() {
-  echo "usage: plan-report.sh <summary|changes|stateful|fingerprint> <plan.json>" >&2
+  echo "usage: plan-report.sh <summary|outside|changes|stateful|fingerprint> <plan.json>" >&2
   exit 2
 }
 
@@ -78,6 +84,21 @@ case "$command" in
           | (map(.change.actions | kind)) as $k
           | def n($x): $k | map(select(. == $x)) | length;
           "| `\(.[0].type)` | \(n("add")) | \(n("change")) | \(n("replace")) | \(n("destroy")) | \(n("other")) |")
+      end' "$plan"
+    ;;
+  outside)
+    jq -r '
+      [.resource_drift // [] | .[] | select(.mode == "managed")] as $rs
+      | def deleted: .change.actions == ["delete"];
+      if ($rs | length) == 0 then
+        "Nothing changed outside Terraform."
+      else
+        "**Changed outside Terraform: \($rs | map(select(deleted | not)) | length) changed, \($rs | map(select(deleted)) | length) deleted**",
+        "",
+        "| Resource type | Changed | Deleted |",
+        "|---|---:|---:|",
+        ($rs | group_by(.type)[]
+          | "| `\(.[0].type)` | \(map(select(deleted | not)) | length) | \(map(select(deleted)) | length) |")
       end' "$plan"
     ;;
   changes)

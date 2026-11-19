@@ -1,6 +1,7 @@
 # GitHub Actions identities for one environment: plan, apply, image push and
-# (once per account) evals. No long-lived credentials: every role is assumed
-# through the account's GitHub OIDC provider.
+# (once per account) evals. No long-lived credentials: every one of these
+# roles is assumed through the account's GitHub OIDC provider. Beside them,
+# the break-glass role for people, at the end of this file.
 #
 # Policies are written with jsonencode and ARNs are built from inputs, so every
 # document is known at plan time: `terraform test` can assert on it and the
@@ -733,4 +734,136 @@ resource "aws_iam_role_policy" "evals" {
       Resource = local.eval_model_arns
     }]
   })
+}
+
+# --- break-glass -------------------------------------------------------------
+
+# Emergency access for named people (docs/runbooks/BREAK_GLASS.md): what the
+# apply role may do, by hand, when the pipeline cannot. It is not assumable
+# from GitHub, needs MFA, and every assumption notifies the ops alert topic.
+# What is changed with it is not in Git: the drift workflow reports it until
+# it is, and the runbook gives one working day.
+locals {
+  break_glass_role_name = "${var.name_prefix}-break-glass"
+  break_glass_role_arn  = "${local.iam_arn}:role/${local.break_glass_role_name}"
+  break_glass_rule_name = "${var.name_prefix}-break-glass-assumed"
+  break_glass_rule_arn  = "arn:${local.partition}:events:${var.aws_region}:${var.account_id}:rule/${local.break_glass_rule_name}"
+}
+
+resource "aws_iam_role" "break_glass" {
+  name                 = local.break_glass_role_name
+  description          = "Emergency access to ${var.env} for named people with MFA; every use notifies the ops alert topic. See docs/runbooks/BREAK_GLASS.md."
+  max_session_duration = 3600
+
+  # MFA in this session, at most an hour old. A role named here can assume
+  # the role only from a session that carries MFA, which a chained role
+  # session does not: in practice the principals are IAM users with MFA.
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "NamedPeopleWithMfa"
+      Effect    = "Allow"
+      Action    = "sts:AssumeRole"
+      Principal = { AWS = var.break_glass_principal_arns }
+      Condition = {
+        Bool            = { "aws:MultiFactorAuthPresent" = "true" }
+        NumericLessThan = { "aws:MultiFactorAuthAge" = "3600" }
+      }
+    }]
+  })
+}
+
+# Read everything, to find what is wrong; CloudTrail's history among it.
+resource "aws_iam_role_policy_attachment" "break_glass_read_only" {
+  role       = aws_iam_role.break_glass.name
+  policy_arn = "arn:${local.partition}:iam::aws:policy/ReadOnlyAccess"
+}
+
+# Change what the apply role may change, with the same documents: the
+# resources of stacks 10 to 60 and their state, never a secret value, never
+# IAM outside /comparative/<env>/, never 00-foundation. Wider access is the
+# account administrator's, as for 00-foundation itself.
+resource "aws_iam_role_policy" "break_glass" {
+  #checkov:skip=CKV_AWS_355:The apply role's documents (tf_apply_iam carries the same skip): the only Allow on "*" in workload-iam is iam:Get*/iam:List*, read-only
+  for_each = {
+    "managed-services" = aws_iam_role_policy.tf_apply_services.policy
+    "workload-iam"     = aws_iam_role_policy.tf_apply_iam.policy
+    "state-read-write" = aws_iam_role_policy.tf_apply_state.policy
+  }
+
+  name   = each.key
+  role   = aws_iam_role.break_glass.id
+  policy = each.value
+}
+
+# Whoever holds the role cannot silence the notice of its use.
+resource "aws_iam_role_policy" "break_glass_keep_the_notice" {
+  name = "keep-the-notice"
+  role = aws_iam_role.break_glass.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "DenyChangingTheOpsTopic"
+        Effect   = "Deny"
+        Action   = ["sns:AddPermission", "sns:DeleteTopic", "sns:RemovePermission", "sns:SetTopicAttributes"]
+        Resource = var.ops_topic_arn
+      },
+      {
+        Sid      = "DenyChangingTheRule"
+        Effect   = "Deny"
+        Action   = ["events:DeleteRule", "events:DisableRule", "events:PutRule", "events:PutTargets", "events:RemoveTargets"]
+        Resource = local.break_glass_rule_arn
+      },
+    ]
+  })
+}
+
+# Every assumption of the role, from the command line (AssumeRole) or the
+# console (SwitchRole), notifies the ops alert topic. CloudTrail may record
+# AssumeRole as a read-only event, which EventBridge delivers only to a rule
+# in this state. A rule sees the events of its own region: the role is
+# assumed through the STS endpoint of aws_region (the global endpoint logs in
+# us-east-1). The SwitchRole pattern was not checked against a recorded event.
+resource "aws_cloudwatch_event_rule" "break_glass_assumed" {
+  name        = local.break_glass_rule_name
+  description = "Every assumption of ${local.break_glass_role_name}; notifies the ops alert topic."
+  state       = "ENABLED_WITH_ALL_CLOUDTRAIL_MANAGEMENT_EVENTS"
+
+  event_pattern = jsonencode({
+    "detail-type" = ["AWS API Call via CloudTrail", "AWS Console Sign In via CloudTrail"]
+    detail = {
+      "$or" = [
+        {
+          eventSource       = ["sts.amazonaws.com"]
+          eventName         = ["AssumeRole"]
+          requestParameters = { roleArn = [local.break_glass_role_arn] }
+        },
+        {
+          eventSource = ["signin.amazonaws.com"]
+          eventName   = ["SwitchRole"]
+          userIdentity = {
+            arn = [{ prefix = "arn:${local.partition}:sts::${var.account_id}:assumed-role/${local.break_glass_role_name}/" }]
+          }
+        },
+      ]
+    }
+  })
+}
+
+resource "aws_cloudwatch_event_target" "break_glass_assumed" {
+  rule      = aws_cloudwatch_event_rule.break_glass_assumed.name
+  target_id = "ops-alerts"
+  arn       = var.ops_topic_arn
+
+  input_transformer {
+    input_paths = {
+      who    = "$.detail.userIdentity.arn"
+      event  = "$.detail.eventName"
+      at     = "$.time"
+      source = "$.detail.sourceIPAddress"
+    }
+    input_template = "\"Break-glass: <who> used ${local.break_glass_role_name} (<event>) at <at> from <source>. Every change made with it must be in Git within one working day: docs/runbooks/BREAK_GLASS.md.\""
+  }
 }

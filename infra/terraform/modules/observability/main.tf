@@ -138,6 +138,67 @@ resource "aws_sns_topic" "ops_alerts" {
   kms_master_key_id = var.kms_key_arn
 }
 
+# Who may publish. A topic policy replaces the default one, so it names every
+# publisher: this environment's alarms, and the EventBridge rules given (the
+# break-glass rule of 00-foundation). The account administers the topic
+# through IAM.
+locals {
+  # arn:<partition>:sns:<region>:<account>:<name>
+  topic_arn_parts = split(":", aws_sns_topic.ops_alerts.arn)
+  topic_account   = local.topic_arn_parts[4]
+}
+
+resource "aws_sns_topic_policy" "ops_alerts" {
+  arn = aws_sns_topic.ops_alerts.arn
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = concat(
+      [
+        {
+          Sid       = "AccountAdministration"
+          Effect    = "Allow"
+          Principal = { AWS = "arn:${local.topic_arn_parts[1]}:iam::${local.topic_account}:root" }
+          Action = [
+            "sns:AddPermission",
+            "sns:DeleteTopic",
+            "sns:GetTopicAttributes",
+            "sns:ListSubscriptionsByTopic",
+            "sns:Publish",
+            "sns:RemovePermission",
+            "sns:SetTopicAttributes",
+            "sns:Subscribe",
+          ]
+          Resource = aws_sns_topic.ops_alerts.arn
+        },
+        {
+          Sid       = "CloudWatchAlarms"
+          Effect    = "Allow"
+          Principal = { Service = "cloudwatch.amazonaws.com" }
+          Action    = "sns:Publish"
+          Resource  = aws_sns_topic.ops_alerts.arn
+          Condition = {
+            ArnLike      = { "aws:SourceArn" = "arn:${local.topic_arn_parts[1]}:cloudwatch:${local.topic_arn_parts[3]}:${local.topic_account}:alarm:${var.name_prefix}-*" }
+            StringEquals = { "aws:SourceAccount" = local.topic_account }
+          }
+        },
+      ],
+      length(var.event_rule_arns) == 0 ? [] : [
+        {
+          Sid       = "EventBridgeRules"
+          Effect    = "Allow"
+          Principal = { Service = "events.amazonaws.com" }
+          Action    = "sns:Publish"
+          Resource  = aws_sns_topic.ops_alerts.arn
+          Condition = {
+            ArnEquals = { "aws:SourceArn" = var.event_rule_arns }
+          }
+        },
+      ],
+    )
+  })
+}
+
 # AWS sends each address a confirmation email; nothing is delivered to it
 # until its owner confirms.
 resource "aws_sns_topic_subscription" "email" {

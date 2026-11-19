@@ -23,8 +23,9 @@ variables {
   name_prefix = "cmp-unit"
   aws_region  = "us-east-1"
 
-  kms_key_arn  = "arn:aws:kms:us-east-1:111122223333:key/00000000-0000-0000-0000-000000000001"
-  alert_emails = ["ops@example.com"]
+  kms_key_arn     = "arn:aws:kms:us-east-1:111122223333:key/00000000-0000-0000-0000-000000000001"
+  alert_emails    = ["ops@example.com"]
+  event_rule_arns = ["arn:aws:events:us-east-1:111122223333:rule/cmp-unit-break-glass-assumed"]
 
   cluster_name = "cmp-unit-cluster"
   service_names = {
@@ -64,6 +65,52 @@ run "production_values" {
       aws_sns_topic_subscription.email["ops@example.com"].topic_arn == aws_sns_topic.ops_alerts.arn
     )
     error_message = "each address is an email subscription of the topic"
+  }
+
+  # The topic policy replaces the default one: every publisher is named.
+  assert {
+    condition = (
+      aws_sns_topic_policy.ops_alerts.arn == aws_sns_topic.ops_alerts.arn &&
+      [for s in jsondecode(aws_sns_topic_policy.ops_alerts.policy).Statement : s.Sid] == ["AccountAdministration", "CloudWatchAlarms", "EventBridgeRules"]
+    )
+    error_message = "the topic policy has the account, the alarms and the EventBridge rules, nothing else"
+  }
+  assert {
+    condition = one([
+      for s in jsondecode(aws_sns_topic_policy.ops_alerts.policy).Statement : s if s.Sid == "AccountAdministration"
+    ]).Principal == { AWS = "arn:aws:iam::111122223333:root" }
+    error_message = "the account administers the topic through IAM; no other account and no wildcard principal"
+  }
+  assert {
+    condition = one([
+      for s in jsondecode(aws_sns_topic_policy.ops_alerts.policy).Statement : s if s.Sid == "CloudWatchAlarms"
+      ]) == {
+      Sid       = "CloudWatchAlarms"
+      Effect    = "Allow"
+      Principal = { Service = "cloudwatch.amazonaws.com" }
+      Action    = "sns:Publish"
+      Resource  = "arn:aws:sns:us-east-1:111122223333:cmp-unit-ops-alerts"
+      Condition = {
+        ArnLike      = { "aws:SourceArn" = "arn:aws:cloudwatch:us-east-1:111122223333:alarm:cmp-unit-*" }
+        StringEquals = { "aws:SourceAccount" = "111122223333" }
+      }
+    }
+    error_message = "this environment's alarms, and only they, publish through CloudWatch"
+  }
+  assert {
+    condition = one([
+      for s in jsondecode(aws_sns_topic_policy.ops_alerts.policy).Statement : s if s.Sid == "EventBridgeRules"
+      ]) == {
+      Sid       = "EventBridgeRules"
+      Effect    = "Allow"
+      Principal = { Service = "events.amazonaws.com" }
+      Action    = "sns:Publish"
+      Resource  = "arn:aws:sns:us-east-1:111122223333:cmp-unit-ops-alerts"
+      Condition = {
+        ArnEquals = { "aws:SourceArn" = ["arn:aws:events:us-east-1:111122223333:rule/cmp-unit-break-glass-assumed"] }
+      }
+    }
+    error_message = "EventBridge publishes for the listed rules only"
   }
 
   # --- every alarm ---------------------------------------------------------------
@@ -367,6 +414,19 @@ run "no_watched_model" {
   assert {
     condition     = length(aws_cloudwatch_metric_alarm.bedrock_token_headroom) == 0 && length(aws_cloudwatch_metric_alarm.this) == 9
     error_message = "an environment that watches no quota still has the nine other alarms"
+  }
+}
+
+run "no_event_rule_no_eventbridge_statement" {
+  command = plan
+
+  variables {
+    event_rule_arns = []
+  }
+
+  assert {
+    condition     = [for s in jsondecode(aws_sns_topic_policy.ops_alerts.policy).Statement : s.Sid] == ["AccountAdministration", "CloudWatchAlarms"]
+    error_message = "without a rule, EventBridge may not publish"
   }
 }
 

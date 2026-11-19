@@ -10,9 +10,9 @@
 # test step.
 #
 # What is checked:
-#   1. The plan is the one meant: the topic, ten alarms, two metric filters,
-#      the dashboard and a subscription. Without this the checks below would
-#      pass on an empty plan.
+#   1. The plan is the one meant: the topic and its policy, ten alarms, two
+#      metric filters, the dashboard and a subscription. Without this the
+#      checks below would pass on an empty plan.
 #   2. The rules of policy/ produce no failure (required tags and the rest).
 #   3. The topic is encrypted with a customer-managed key. No rule of policy/
 #      covers SNS, so it is stated here.
@@ -47,10 +47,11 @@ jq -e '
     aws_cloudwatch_log_metric_filter: 2,
     aws_cloudwatch_metric_alarm: 10,
     aws_sns_topic: 1,
+    aws_sns_topic_policy: 1,
     aws_sns_topic_subscription: 1
   }
 ' "$plan_json" >/dev/null ||
-  fail "expected a plan that creates the topic, a subscription, two metric filters, ten alarms and the dashboard"
+  fail "expected a plan that creates the topic, its policy, a subscription, two metric filters, ten alarms and the dashboard"
 
 # 2. The rules.
 if ! conftest test --policy "$policy" --no-color "$plan_json"; then

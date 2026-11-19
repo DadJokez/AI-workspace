@@ -125,6 +125,23 @@ check "an environment or stack that no longer exists is left out" '' \
 
 check "no change, no pair" ''
 
+# --all: what the drift workflow plans. It reads no paths.
+every_pair="$(for e in personal-prod personal-stage; do for s in 00-foundation 10-network 20-data 30-platform 35-deploy-tasks 40-services 60-observability; do printf '%s\t%s\tinfra\n' "$e" "$s"; done; done)"
+out=$(printf '%s\0' "$T/envs/personal-stage/release.auto.tfvars" | bash "$script" --all "$root" 2>&1)
+status=$?
+if [ "$status" = 0 ] && [ "$out" = "$every_pair" ]; then
+  ok "--all prints every pair in apply order and ignores the paths on stdin"
+else
+  bad "--all prints every pair in apply order and ignores the paths on stdin" "exit $status: $out"
+fi
+out=$(bash "$script" --all "$root" extra < /dev/null 2>&1)
+status=$?
+if [ "$status" = 2 ] && [[ "$out" == *"usage:"* ]]; then
+  ok "--all with two more arguments is a usage error"
+else
+  bad "--all with two more arguments is a usage error" "exit $status: $out"
+fi
+
 mkdir -p "$root/stacks/50-agentcore"
 check "50-agentcore, once it exists, is released and ordered before 40-services" \
   'personal-stage\t35-deploy-tasks\trelease\npersonal-stage\t50-agentcore\trelease\npersonal-stage\t40-services\trelease' \

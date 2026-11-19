@@ -92,3 +92,27 @@ variable "eval_inference_regions" {
   description = "Regions the inference profile routes to; the evals role may invoke the foundation models there."
   type        = list(string)
 }
+
+variable "break_glass_principal_arns" {
+  description = "IAM users or roles that may assume the break-glass role, each with MFA. Named principals only: no account root, no wildcard."
+  type        = list(string)
+
+  validation {
+    condition     = length(var.break_glass_principal_arns) > 0
+    error_message = "break_glass_principal_arns must name at least one IAM user or role."
+  }
+
+  # A root or wildcard principal would let every identity of an account in.
+  validation {
+    condition = alltrue([
+      for arn in var.break_glass_principal_arns :
+      can(regex("^arn:aws[a-z-]*:iam::[0-9]{12}:(user|role)/[A-Za-z0-9+=,.@_/-]+$", arn))
+    ])
+    error_message = "Each break-glass principal must be the ARN of one IAM user or role (arn:aws:iam::<account>:user/<name> or :role/<name>), without a wildcard."
+  }
+}
+
+variable "ops_topic_arn" {
+  description = "ARN of the ops alert topic of 60-observability, which the break-glass rule notifies. The topic may not exist yet; nothing is delivered until it does."
+  type        = string
+}

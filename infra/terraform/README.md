@@ -16,7 +16,7 @@ tf.sh                the one way to run a stack
 check.sh             static checks, the same commands CI runs
 plan_checks.sh       helper of the stack tests: reads what a stack plans inside its modules
 bootstrap/           one-time per account: state bucket and its KMS key
-modules/ci-identity/ GitHub OIDC provider, plan/apply/image-push/evals roles, workload boundary
+modules/ci-identity/ GitHub OIDC provider, plan/apply/image-push/evals roles, workload boundary, break-glass role
 modules/network/     VPC (built or adopted), endpoints, security groups, optional stand-in proxy
 modules/data/        database, optional RDS Proxy, secrets, buckets
 modules/ecs-task/    one Fargate task definition with its log group and two roles
@@ -70,7 +70,7 @@ Stacks do not read each other's state: a stack publishes what others need to SSM
 These commands change AWS. They are run by the account owner with administrator credentials, never by CI.
 
 1. In `envs/personal-stage/env.tfvars`, replace the `REPLACE_ME` values for `account_id`, `tags`,
-   `github_*` and `eval_model_ids`, and those under the `30-platform`, `40-services` and
+   `github_*`, `eval_model_ids` and `break_glass_principal_arns`, and those under the `30-platform`, `40-services` and
    `60-observability` headings (`domain_name`, `certificate_arn`, `invite_email_*`, `bedrock_model_ids`,
    `alert_emails`, the quota in `quota_alarm_models`): `tf.sh` runs no stack while one remains. The numeric GitHub ids come from
    `gh api repos/<owner>/<repo> --jq '{repository_id: .id, owner_id: .owner.id}'`.
@@ -133,9 +133,22 @@ That GitHub environment, and its protection rules, are created in the repository
   must carry. Later stacks set it on each role they create and extend it, in `00-foundation`, when a
   workload needs something it does not allow. It was extended once that way: `ses:SendEmail` from this
   account's identities, for the web service's invitation email.
+- `<name_prefix>-break-glass`: emergency access for people, not for CI
+  ([`docs/runbooks/BREAK_GLASS.md`](../../docs/runbooks/BREAK_GLASS.md)). Its trust names the IAM
+  principals of `break_glass_principal_arns` (no root, no wildcard) and requires MFA at most an hour
+  old; in practice they are IAM users with MFA, because a chained role session carries no MFA. It may
+  read everything (`ReadOnlyAccess`) and change what the apply role may change, with the apply role's
+  own policy documents, and it cannot change the ops alert topic or the rule below.
+- The EventBridge rule `<name_prefix>-break-glass-assumed` matches every `AssumeRole` of the
+  break-glass role (and a console `SwitchRole`, a pattern not checked against a recorded event) and
+  notifies the ops alert topic of `60-observability`: notices arrive once that stack is applied. The
+  rule receives the events of `aws_region` only (a role assumed through the global STS endpoint is
+  logged in `us-east-1`), and read-only management events too, in case CloudTrail records `AssumeRole`
+  as one. The logs key lets EventBridge use it for that topic (`EventBridgeToOpsTopic`).
 - SSM parameters `kms/data_arn`, `kms/logs_arn`, `kms/secrets_arn`, `ecr/app_repo_url`,
-  `ecr/agent_repo_url` and `iam/workload_boundary_arn` under `/comparative/<env>/00-foundation/`. Every
-  stack that creates a role reads the boundary from the last one.
+  `ecr/agent_repo_url`, `iam/workload_boundary_arn` and `events/break_glass_rule_arn` under
+  `/comparative/<env>/00-foundation/`. Every stack that creates a role reads the boundary from
+  `iam/workload_boundary_arn`; `60-observability` reads the rule.
 
 Two properties to keep:
 
@@ -483,7 +496,7 @@ in the private namespace. See "What the apply role cannot do" under `30-platform
 
 ## What 60-observability creates
 
-Applied last (it reads the logs key from `00-foundation`, the cluster and the load balancer from
+Applied last (it reads the logs key and the break-glass rule from `00-foundation`, the cluster and the load balancer from
 `30-platform`, and the service names and two log groups from `40-services`):
 
 ```bash
@@ -493,7 +506,10 @@ Applied last (it reads the logs key from `00-foundation`, the cluster and the lo
 
 - **Topic.** `<name_prefix>-ops-alerts`, encrypted with the logs key, with one email subscription per
   address in `alert_emails`. AWS sends each address a confirmation email; nothing is delivered to it
-  until its owner confirms, and Terraform cannot confirm for them.
+  until its owner confirms, and Terraform cannot confirm for them. Its policy names every publisher:
+  the account (through IAM), this environment's alarms (`cloudwatch.amazonaws.com` for alarms named
+  `<name_prefix>-*`) and the break-glass rule of `00-foundation` (`events.amazonaws.com` for that rule
+  only).
 - **Alarms**, each `<name_prefix>-<alarm>`, each notifying the topic when it fires and when it clears.
   The values are the ones production runs with (`infra/cdk/lib/ai-workspace-ecs-stack.ts` and
   `infra/scripts/setup-ops-alarms.sh`):
@@ -536,8 +552,10 @@ aws cloudwatch set-alarm-state --alarm-name cmp-personal-stage-run-failure-burst
 ```
 
 The alarm returns to its real state at its next evaluation. If no email arrives, read the alarm's
-history (`aws cloudwatch describe-alarm-history`) for a failed action, and the statement
-`CloudWatchAlarmsToOpsTopic` of the logs key in `00-foundation`.
+history (`aws cloudwatch describe-alarm-history`) for a failed action, the statement
+`CloudWatchAlarms` of the topic policy, and the statement `CloudWatchAlarmsToOpsTopic` of the logs key
+in `00-foundation`. Prove the break-glass notice the same way: assume the role once
+([`BREAK_GLASS.md`](../../docs/runbooks/BREAK_GLASS.md), "Prove the notice").
 
 ## A release
 
@@ -693,7 +711,8 @@ GitHub keeps one pending run per concurrency group, so when a third run queues b
 second is cancelled and its changes are applied by no run; drift detection (WP-16) reports them.
 
 Rolling back is a revert of the release pull request: the previous digests are signed for a commit on
-`main`, so the revert deploys like any release. Migrations are expand-only, so the database stays.
+`main`, so the revert deploys like any release. Migrations are expand-only, so the database stays
+([`docs/runbooks/ROLLBACK.md`](../../docs/runbooks/ROLLBACK.md)).
 
 ### Promotion
 
@@ -706,6 +725,30 @@ Product Smoke with `run_evals=true` against `from`'s base URL on a temporary bra
 `promote-eval/<release id>` at the release commit, waits for it, and requires its eval and public smoke
 jobs to pass.
 
+### Drift detection
+
+`.github/workflows/terraform-drift.yml` runs every night and by hand on `main`. For every pair of every
+environment (`scripts/affected.sh --all`) it assumes the plan role and runs `scripts/stack.sh drift`:
+`tf.sh … plan -lock=false -detailed-exitcode`, where exit 0 means no changes and 2 means that what runs
+in AWS differs from `main`. A plan sees what Terraform manages and nothing beside it: a security group
+rule added in the console belongs to no resource and no plan shows it. So `scripts/sg-rules.sh` also
+lists the live rules of every managed security group (`ec2:DescribeSecurityGroupRules`) and reports the
+ones that no stack of the environment manages.
+
+`scripts/drift-issue.sh` turns the results into one issue per environment, `Terraform drift: <env>`,
+labelled `ops`: opened or refreshed on drift (each stack's result, totals by resource type of what
+changed outside Terraform and of what an apply would do, the ids of unmanaged rules; no values, no
+addresses), closed with a comment once every stack plans with no changes and every rule is managed.
+When a plan fails and nothing drifted, drift is unknown: an open issue stays open, none is opened, and
+the run fails. The issue gives the deadline of the one-working-day rule of
+[`BREAK_GLASS.md`](../../docs/runbooks/BREAK_GLASS.md) (00:00 UTC of the working day after the first
+report, a weekend report counting from Monday), and a run that finds drift past it fails.
+
+What it does not see: resources no stack declares (a security group created in the console, a second
+service), and changes a stack ignores (`ignore_changes`). A plan of a stack never applied lists
+everything as drift, and a run during an apply can report what that apply is about to change; the next
+run closes such an issue.
+
 ### Settings (Rob)
 
 | Kind | Name | Value |
@@ -714,6 +757,7 @@ jobs to pass.
 | Environment | `personal-stage` | no required reviewer; deployment branches: `main` only |
 | Environment | `personal-prod` (WP-20) | required reviewer Rob; deployment branches: `main` only |
 | Label | `allow-stateful-replace` | applied by Rob only |
+| Label | `ops` | the drift issues; also how the drift workflow finds its open issue |
 | Branch protection | Require review from Code Owners | so that `.github/CODEOWNERS` (`envs/*-prod/`, `modules/ci-identity/`) takes effect |
 
 `RELEASE_SIGNING_KEY_ARN`, `RELEASE_BOT_CLIENT_ID` and `RELEASE_BOT_PRIVATE_KEY` are the ones of "How a
@@ -765,7 +809,9 @@ A stack's tests supply what earlier stacks publish to SSM, so they need no state
 The `scripts` step runs the fixtures of the pipeline's scripts, `scripts/*.test.sh`: `affected.sh`
 (which pairs a change plans and applies), `plan-report.sh` (summary, stateful-replace detector and
 fingerprint, against plan JSON in `scripts/fixtures/`), `stack.sh` (what an apply applies and refuses,
-with a stand-in `terraform`) and `stateful-replace-allowed.sh`. `run-task.sh` and `snapshot-db.sh`
+with a stand-in `terraform`), `stateful-replace-allowed.sh`, `sg-rules.sh` (rules outside Terraform,
+with a stand-in `aws`) and `drift-issue.sh` (what a drift run concludes, the deadline and the issue).
+`run-task.sh` and `snapshot-db.sh`
 call AWS; their tests are `apps/web/__tests__/terraform-run-task-script.test.ts` and
 `terraform-snapshot-db-script.test.ts`, against a stubbed `aws`, in the unit suite.
 

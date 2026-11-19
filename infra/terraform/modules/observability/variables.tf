@@ -31,6 +31,11 @@ variable "alert_emails" {
   }
 }
 
+variable "event_rule_arns" {
+  description = "EventBridge rules that may publish to the topic: the break-glass rule of 00-foundation. Its key's policy must let events.amazonaws.com use it for this topic too."
+  type        = list(string)
+}
+
 # --- what is watched ------------------------------------------------------------
 
 variable "cluster_name" {

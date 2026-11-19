@@ -29,6 +29,10 @@ check sandbox "the topic is encrypted with the logs key of 00-foundation" '
 check sandbox "alert_emails become the topic's email subscriptions" "
   of_type(\"aws_sns_topic_subscription\")
   | all(.values.protocol == \"email\" and .values.endpoint == \"ops@example.com\" and .values.topic_arn == $topic)"
+check sandbox "the break-glass rule of 00-foundation may publish to the topic, and only from that rule" '
+  statement("module.observability.aws_sns_topic_policy.ops_alerts"; "EventBridgeRules")
+  | .Principal == {Service: "events.amazonaws.com"} and .Action == "sns:Publish"
+    and .Condition == {ArnEquals: {"aws:SourceArn": ["arn:aws:events:us-east-1:111122223333:rule/cmp-unit-break-glass-assumed"]}}'
 check sandbox "every alarm notifies the topic when it fires and when it clears" "
   of_type(\"aws_cloudwatch_metric_alarm\") | all(.values.alarm_actions == [$topic] and .values.ok_actions == [$topic])"
 

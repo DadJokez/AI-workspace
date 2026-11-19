@@ -30,3 +30,8 @@ output "signing_key_arn" {
   description = "KMS key that signs and verifies release images."
   value       = aws_kms_key.signing.arn
 }
+
+output "break_glass_role_arn" {
+  description = "Role a named person assumes, with MFA, when the pipeline cannot make a change (docs/runbooks/BREAK_GLASS.md)."
+  value       = module.ci_identity.break_glass_role_arn
+}
