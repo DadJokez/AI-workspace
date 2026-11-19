@@ -70,6 +70,7 @@ module "data" {
   master_username            = var.db_master_username
   restore_snapshot_id        = var.db_restore_snapshot_id
   enable_rds_proxy           = var.enable_rds_proxy
+  disposable                 = var.data_disposable
 }
 
 # --- Published outputs -------------------------------------------------------

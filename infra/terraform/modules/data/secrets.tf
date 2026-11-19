@@ -27,6 +27,11 @@ resource "aws_secretsmanager_secret" "this" {
   name        = "comparative/${var.env}/${each.key}"
   description = each.value
   kms_key_id  = var.secrets_kms_key_arn
+
+  # Secrets Manager keeps a deleted secret, and its name, for 30 days. A
+  # disposable environment deletes it at once, so the next one can reuse the
+  # name; null keeps the 30 days everywhere else.
+  recovery_window_in_days = var.disposable ? 0 : null
 }
 
 # Access is granted by identity policies inside the account. This policy only

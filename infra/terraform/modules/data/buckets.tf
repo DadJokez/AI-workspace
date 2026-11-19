@@ -16,6 +16,9 @@ resource "aws_s3_bucket" "alb_logs" {
   #checkov:skip=CKV_AWS_144:Access logs are kept 30 days in one region; no replication requirement
   #checkov:skip=CKV2_AWS_62:Nothing consumes events from this bucket
   bucket = local.alb_logs_bucket
+
+  # A disposable environment's destroy deletes the logs with the bucket.
+  force_destroy = var.disposable
 }
 
 resource "aws_s3_bucket_public_access_block" "alb_logs" {
@@ -99,6 +102,8 @@ resource "aws_s3_bucket" "artifacts" {
   #checkov:skip=CKV2_AWS_61:Empty until the application uses it; retention is decided with that first use
   #checkov:skip=CKV2_AWS_62:Nothing consumes events from this bucket
   bucket = local.artifacts_bucket
+
+  force_destroy = var.disposable
 }
 
 resource "aws_s3_bucket_public_access_block" "artifacts" {

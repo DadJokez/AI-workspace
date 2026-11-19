@@ -356,3 +356,59 @@ run "buckets" {
     error_message = "only this account's load balancers in this region may write access logs, and only under AWSLogs/<account>/"
   }
 }
+
+# --- a disposable environment ------------------------------------------------------
+
+run "kept_by_default" {
+  command = plan
+
+  assert {
+    condition = (
+      aws_db_instance.this.deletion_protection == true &&
+      aws_db_instance.this.skip_final_snapshot == false &&
+      aws_db_instance.this.final_snapshot_identifier == "cmp-unit-db-final"
+    )
+    error_message = "without disposable the database is protected and leaves a final snapshot"
+  }
+  assert {
+    condition     = alltrue([for secret in aws_secretsmanager_secret.this : secret.recovery_window_in_days != 0])
+    error_message = "without disposable a deleted secret keeps the recovery window (unset: the 30-day default)"
+  }
+  assert {
+    condition     = aws_s3_bucket.alb_logs.force_destroy == false && aws_s3_bucket.artifacts.force_destroy == false
+    error_message = "without disposable a bucket that holds objects is never deleted"
+  }
+}
+
+run "disposable" {
+  command = plan
+
+  variables {
+    disposable = true
+  }
+
+  assert {
+    condition = (
+      aws_db_instance.this.deletion_protection == false &&
+      aws_db_instance.this.skip_final_snapshot == true &&
+      aws_db_instance.this.final_snapshot_identifier == null
+    )
+    error_message = "a disposable database can be destroyed and leaves no snapshot whose name the next one would hit"
+  }
+  assert {
+    condition     = alltrue([for secret in aws_secretsmanager_secret.this : secret.recovery_window_in_days == 0])
+    error_message = "a disposable environment's secrets are deleted at once, so their names are free again"
+  }
+  assert {
+    condition     = aws_s3_bucket.alb_logs.force_destroy == true && aws_s3_bucket.artifacts.force_destroy == true
+    error_message = "a disposable environment's buckets are emptied when destroyed"
+  }
+  assert {
+    condition = (
+      aws_db_instance.this.storage_encrypted == true &&
+      aws_db_instance.this.publicly_accessible == false &&
+      alltrue([for secret in aws_secretsmanager_secret.this : secret.kms_key_id == var.secrets_kms_key_arn])
+    )
+    error_message = "disposable changes how the data is deleted, nothing else"
+  }
+}

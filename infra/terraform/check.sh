@@ -5,7 +5,7 @@
 #   infra/terraform/check.sh            # every step
 #   infra/terraform/check.sh policy     # one step
 #
-# Steps: fmt, versions, validate, lint, test, policy, scripts.
+# Steps: fmt, versions, validate, lint, test, policy, scripts, rehearsal.
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -119,19 +119,26 @@ step_scripts() {
   return "$status"
 }
 
-steps=(fmt versions validate lint test policy scripts)
+# The firewall rehearsal's dry run: every stack of envs/personal-rehearsal
+# planned against a mocked AWS provider and checked by the Conftest rules, and
+# the commands of its checks printed (scripts/rehearsal.sh --plan-only).
+step_rehearsal() {
+  scripts/rehearsal.sh --plan-only
+}
+
+steps=(fmt versions validate lint test policy scripts rehearsal)
 if [ "$#" -gt 0 ]; then
   steps=("$@")
 fi
 
 for step in "${steps[@]}"; do
   case "$step" in
-    fmt | versions | validate | lint | test | policy | scripts)
+    fmt | versions | validate | lint | test | policy | scripts | rehearsal)
       echo "### $step"
       "step_$step"
       ;;
     *)
-      echo "check.sh: unknown step '$step' (fmt, versions, validate, lint, test, policy, scripts)" >&2
+      echo "check.sh: unknown step '$step' (fmt, versions, validate, lint, test, policy, scripts, rehearsal)" >&2
       exit 2
       ;;
   esac

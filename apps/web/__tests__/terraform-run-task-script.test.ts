@@ -73,6 +73,32 @@ describe("infra/terraform/scripts/run-task.sh", () => {
     },
   );
 
+  it("passes no overrides unless TASK_OVERRIDES is set", () => {
+    const result = runScript(["personal-stage", "smoke"]);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(readFileSync(result.capturePath, "utf8")).not.toContain("--overrides");
+  });
+
+  it("hands TASK_OVERRIDES to ECS unchanged", () => {
+    const overrides = JSON.stringify({
+      taskRoleArn: "arn:aws:iam::111122223333:role/comparative/personal-stage/worker-task",
+      containerOverrides: [{ name: "smoke", command: ["pnpm", "eval", "--gate"] }],
+    });
+    const result = runScript(["personal-stage", "smoke"], { taskOverrides: overrides });
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(readFileSync(result.capturePath, "utf8")).toContain(`--count 1 --overrides ${overrides}`);
+  });
+
+  it("rejects TASK_OVERRIDES that is not a JSON object before calling AWS", () => {
+    const result = runScript(["personal-stage", "smoke"], { taskOverrides: '["pnpm"]' });
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("TASK_OVERRIDES is not a JSON object");
+    expect(readFileSync(result.capturePath, "utf8")).toBe("");
+  });
+
   it("fails on a non-zero exit but still prints the receipt", () => {
     const result = runScript(["personal-stage", "migrator"], { exitCode: "17" });
 
@@ -161,6 +187,7 @@ function runScript(
     missingParameter = "",
     subnets = PARAMETERS["/comparative/personal-stage/10-network/app_subnet_ids"],
     releaseId = RELEASE_ID,
+    taskOverrides = "",
   }: {
     runFailure?: boolean;
     waitFailure?: boolean;
@@ -168,6 +195,7 @@ function runScript(
     missingParameter?: string;
     subnets?: string;
     releaseId?: string;
+    taskOverrides?: string;
   } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), "terraform-run-task-"));
@@ -226,6 +254,7 @@ fi
       PATH: `${dir}:${process.env.PATH ?? ""}`,
       AWS_REGION: "us-east-1",
       RELEASE_ID: releaseId,
+      TASK_OVERRIDES: taskOverrides,
       FAKE_CAPTURE_PATH: capturePath,
       FAKE_PARAMETERS: join(dir, "parameters.json"),
       FAKE_MISSING: missingParameter,

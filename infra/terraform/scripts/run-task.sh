@@ -9,7 +9,10 @@
 # private app subnets, without a public IP.
 #
 # Environment: AWS_REGION, RELEASE_ID (the full commit sha of the release; the
-# task is started by deploy-<task>-<first 12>).
+# task is started by deploy-<task>-<first 12>). Optional TASK_OVERRIDES: a JSON
+# object passed to `ecs run-task --overrides` as it is, for a run with another
+# command, environment or task role (rehearsal.sh runs its checks this way).
+# The pipeline never sets it.
 #
 # stdout: `Deploy task receipt: {"task", "release_id", "task_arn",
 #         "task_definition_arn", "exit_code"}` once the task has stopped,
@@ -30,6 +33,12 @@ case "$task" in migrator | smoke) ;; *) usage ;; esac
 : "${AWS_REGION:?AWS_REGION is required}"
 : "${RELEASE_ID:?RELEASE_ID is required}"
 [[ "$RELEASE_ID" =~ ^[0-9a-f]{40}$ ]] || { echo "run-task.sh: RELEASE_ID is not a full commit sha" >&2; exit 2; }
+overrides=()
+if [ -n "${TASK_OVERRIDES:-}" ]; then
+  jq -e 'type == "object"' <<<"$TASK_OVERRIDES" >/dev/null 2>&1 ||
+    { echo "run-task.sh: TASK_OVERRIDES is not a JSON object" >&2; exit 2; }
+  overrides=(--overrides "$TASK_OVERRIDES")
+fi
 
 fail() {
   echo "run-task.sh: $*" >&2
@@ -66,7 +75,8 @@ run=$(aws ecs run-task --region "$AWS_REGION" --output json \
   --task-definition "$task_definition" \
   --network-configuration "awsvpcConfiguration={subnets=[$subnets],securityGroups=[$security_group],assignPublicIp=DISABLED}" \
   --started-by "$started_by" \
-  --count 1)
+  --count 1 \
+  "${overrides[@]}")
 
 failures=$(jq -c '.failures // []' <<<"$run")
 [ "$failures" = "[]" ] || fail "ECS rejected the $task task: $failures"

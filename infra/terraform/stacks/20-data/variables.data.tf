@@ -52,3 +52,9 @@ variable "enable_rds_proxy" {
   type        = bool
   default     = false
 }
+
+variable "data_disposable" {
+  description = "True only in an environment that is created and destroyed whole, such as a firewall rehearsal: no deletion protection, no final snapshot, no secret recovery window, buckets emptied on destroy."
+  type        = bool
+  default     = false
+}
